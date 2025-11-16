@@ -227,6 +227,103 @@ class AssortativeMatingSimulation:
             return True
         except np.linalg.LinAlgError:
             return False
+    
+    def _make_positive_definite_nearest(self, matrix, min_eigenvalue=1e-6):
+        """
+        Find the nearest positive definite matrix to the input matrix.
+        Uses Higham's (2002) algorithm for finding the nearest correlation matrix.
+        
+        Parameters:
+        -----------
+        matrix : np.ndarray
+            Input matrix (should be symmetric)
+        min_eigenvalue : float
+            Minimum eigenvalue threshold for positive definiteness
+        
+        Returns:
+        --------
+        np.ndarray
+            Nearest positive definite matrix
+        """
+        # Ensure symmetry
+        A = (matrix + matrix.T) / 2
+        
+        # Check if already positive definite
+        try:
+            np.linalg.cholesky(A)
+            return A
+        except np.linalg.LinAlgError:
+            pass
+        
+        # Higham's algorithm
+        spacing = np.spacing(np.linalg.norm(A))
+        identity = np.eye(A.shape[0])
+        
+        Y = A.copy()
+        
+        for iteration in range(100):  # Max iterations
+            R = Y - spacing * identity
+            
+            # Project onto symmetric positive semidefinite matrices
+            eigenvalues, eigenvectors = np.linalg.eigh(R)
+            eigenvalues[eigenvalues < min_eigenvalue] = min_eigenvalue
+            X = eigenvectors @ np.diag(eigenvalues) @ eigenvectors.T
+            
+            # Project onto matrices with unit diagonal (correlation matrices)
+            dS = np.diag(np.diag(X)) - identity
+            Y = X - dS
+            
+            # Check convergence
+            if np.linalg.norm(Y - A, 'fro') / np.linalg.norm(A, 'fro') < 1e-7:
+                break
+        
+        # Final symmetrization and ensure unit diagonal
+        Y = (Y + Y.T) / 2
+        np.fill_diagonal(Y, 1.0)
+        
+        return Y
+    
+    def _shrink_to_nearest_psd(self, matrix, min_eigenvalue=1e-6, max_shrinkage=0.5):
+        """
+        Alternative: Shrink toward identity matrix until positive definite.
+        This is faster but may perturb more than Higham's method.
+        
+        Parameters:
+        -----------
+        matrix : np.ndarray
+            Input correlation matrix
+        min_eigenvalue : float
+            Minimum eigenvalue threshold
+        max_shrinkage : float
+            Maximum shrinkage factor (0 to 1)
+        
+        Returns:
+        --------
+        np.ndarray
+            Nearest positive definite matrix via shrinkage
+        """
+        A = (matrix + matrix.T) / 2  # Ensure symmetry
+        identity = np.eye(A.shape[0])
+        
+        # Binary search for minimal shrinkage
+        low, high = 0.0, max_shrinkage
+        best_alpha = 0.0
+        
+        for _ in range(20):  # Binary search iterations
+            alpha = (low + high) / 2
+            A_shrunk = (1 - alpha) * A + alpha * identity
+            
+            eigenvalues = np.linalg.eigvalsh(A_shrunk)
+            if np.all(eigenvalues >= min_eigenvalue):
+                best_alpha = alpha
+                high = alpha
+            else:
+                low = alpha
+        
+        result = (1 - best_alpha) * A + best_alpha * identity
+        np.fill_diagonal(result, 1.0)  # Ensure unit diagonal
+        
+        return result
         
     def _find_unique_closest_indices(self, dist_matrix_input, max_ord=100):
         dist_matrix = dist_matrix_input.copy() 
@@ -341,11 +438,21 @@ class AssortativeMatingSimulation:
         
         if not self._is_positive_definite(matcor_xsim_target):
             print(f"Warning: Target MATCOR for Xsim (4x4) is not positive definite. Attempting correction. Original:\n{matcor_xsim_target}")
-            eigenvalues, eigenvectors = np.linalg.eigh(matcor_xsim_target)
-            matcor_xsim_target = eigenvectors @ np.diag(np.maximum(eigenvalues, 1e-12)) @ eigenvectors.T
+    
+            # Try nearest correlation matrix first (minimal perturbation)
+            matcor_xsim_target = self._make_positive_definite_nearest(matcor_xsim_target)
+    
             if not self._is_positive_definite(matcor_xsim_target):
-                 print("Error: Target MATCOR for Xsim could not be made positive definite. Using identity matrix as fallback for Xsim generation.")
-                 matcor_xsim_target = np.eye(4)
+                print("Warning: Higham's algorithm failed. Trying shrinkage method...")
+                matcor_xsim_target = self._shrink_to_nearest_psd(matcor_xsim_target)
+            
+                if not self._is_positive_definite(matcor_xsim_target):
+                    print("Error: Could not make matrix positive definite. Using identity as fallback.")
+                    matcor_xsim_target = np.eye(4)
+                else:
+                    print(f"Success with shrinkage method. Corrected matrix:\n{matcor_xsim_target}")
+            else:
+                print(f"Success with nearest correlation matrix. Corrected matrix:\n{matcor_xsim_target}")
 
         # Generate initial Xsim template data
         x_sim_initial = np.random.multivariate_normal(np.zeros(4), matcor_xsim_target, size=n_potential_pairs, check_valid='warn')

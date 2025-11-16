@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""
-Test single pedigree simulation with set-based relationship finding.
-
-This version uses find_relative_setbased.py for high-performance relationship finding
-using a set-based pandas.merge approach instead of graph traversal.
-
-For the original graph-based version, see test_single_pedigree_original.py
-"""
 
 import numpy as np
 import os
@@ -17,7 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from SimulationFunctions.SimulationFunctions import AssortativeMatingSimulation
 from SimulationFunctions.save_simulation_data import save_simulation_results
-from SimulationFunctions.find_relative_setbased import extract_genealogy_info, find_relationship_pairs, save_sparse_relationship_matrix, load_sparse_relationship_matrix, sparse_matrix_to_long_format, get_matrix_memory_info
+from SimulationFunctions.find_relative import extract_genealogy_info, find_relationship_pairs, save_sparse_relationship_matrix, load_sparse_relationship_matrix, sparse_matrix_to_long_format, get_matrix_memory_info
 from SimulationFunctions.extract_measures import extract_individual_measures, extract_measures_for_pairs, compute_correlations_for_multiple_variables, save_measures_to_file
 
 def main():
@@ -171,7 +163,7 @@ def main():
             
             # Test 2: Get genealogy summary
             print("\n--- Test 2: Genealogy Summary Statistics ---")
-            from SimulationFunctions.find_relative_setbased import get_genealogy_summary
+            from SimulationFunctions.find_relative import get_genealogy_summary
             summary = get_genealogy_summary(genealogy_all)
             print(f"✓ Total individuals: {summary['total_individuals']:,}")
             print(f"✓ Mated individuals: {summary['mated_individuals']:,}")
@@ -193,8 +185,8 @@ def main():
             
             # Test 5: Find first cousins (PSC)
             print("\n--- Test 5: Find First Cousins (PSC) - All Generations ---")
-            print("Finding all first cousin pairs using path 'PSC' (set-based algorithm)...")
-            cousins = find_relationship_pairs(results, "PSC", output_format='long', generations=[11,12,13,14,15])
+            print("Finding all first cousin pairs using path 'PSC' with 4 CPU cores...")
+            cousins = find_relationship_pairs(results, "PSC", output_format='long', n_jobs=6, generations=[11,12,13,14,15])
             print(f"✓ Found {len(cousins):,} first cousin pairs")
             if len(cousins) > 0:
                 print(f"✓ Sample pairs:\n{cousins.head()}")
@@ -254,7 +246,7 @@ def main():
             for rel_path, rel_name in relationship_types.items():
                 try:
                     rel_pairs = find_relationship_pairs(
-                        results, rel_path, output_format='long', generations=[11,12,13,14,15]
+                        results, rel_path, output_format='long', n_jobs=6, generations=[11,12,13,14,15]
                     )
                     print(f"✓ {rel_name} ({rel_path}): {len(rel_pairs):,} pairs")
                 except Exception as e:

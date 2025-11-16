@@ -3,6 +3,10 @@
 DirectAM.py - Run multiple simulations to compute PGS and phenotypic correlations
 for various relative types under direct assortative mating.
 
+This version uses the set-based merge algorithm (find_relative_setbased.py) for
+high-performance relationship finding, which is significantly faster than the
+graph-traversal approach.
+
 Specifications:
 - Number of simulations: 10
 - Generations per simulation: 15
@@ -24,7 +28,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from SimulationFunctions.SimulationFunctions import AssortativeMatingSimulation
 from SimulationFunctions.save_simulation_data import save_simulation_results
-from SimulationFunctions.find_relative import extract_genealogy_info, find_relationship_pairs
+from SimulationFunctions.find_relative_setbased import extract_genealogy_info, find_relationship_pairs
 from SimulationFunctions.extract_measures import extract_individual_measures, extract_measures_for_pairs, compute_correlations_for_multiple_variables, save_measures_to_file
 
 
@@ -50,7 +54,7 @@ def compute_pgs_from_components(measures_df):
     return df
 
 
-def run_single_iteration(iteration_num, output_base_dir, n_jobs=6):
+def run_single_iteration(iteration_num, output_base_dir, n_jobs=None):
     """
     Run a single simulation iteration.
     
@@ -60,8 +64,9 @@ def run_single_iteration(iteration_num, output_base_dir, n_jobs=6):
         Iteration number (1-indexed)
     output_base_dir : str
         Base directory for outputs
-    n_jobs : int
-        Number of CPU cores to use for relationship finding
+    n_jobs : int, optional
+        Deprecated parameter (kept for backward compatibility).
+        The set-based algorithm doesn't use parallel processing.
     
     Returns:
     --------
@@ -184,11 +189,10 @@ def run_single_iteration(iteration_num, output_base_dir, n_jobs=6):
         try:
             print(f"  Processing {rel_path}...", end=' ')
             
-            # Find pairs for final three generations only
+            # Find pairs for final three generations only (using set-based algorithm)
             pairs = find_relationship_pairs(
                 results, rel_path, 
                 output_format='long', 
-                n_jobs=n_jobs,
                 generations=final_three_gens
             )
             
@@ -279,7 +283,7 @@ def main():
     print(f"  - Population size: 1000")
     print(f"  - Analysis generations: 12, 13, 14 (final 3)")
     print(f"  - Variables: PGS1, PGS2, Y1, Y2")
-    print(f"  - CPU cores: 6")
+    print(f"  - Relationship finding: Set-based merge algorithm (high performance)")
     
     # Set up output directory
     output_base_dir = "/Users/xuly4739/Library/CloudStorage/OneDrive-UCB-O365/Documents/coding/PyProject/PGS_Cor_Relative/Data/DirectAM"
@@ -293,7 +297,7 @@ def main():
     
     for i in range(1, num_iterations + 1):
         try:
-            stats, correlations = run_single_iteration(i, output_base_dir, n_jobs=6)
+            stats, correlations = run_single_iteration(i, output_base_dir)
             
             if stats is not None:
                 all_iteration_stats.append(stats)
