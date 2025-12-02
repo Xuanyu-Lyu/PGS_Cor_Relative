@@ -25,6 +25,80 @@ OUTPUT_DIR = Path(__file__).parent.parent.parent / "Data" / "approximation_bi"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Define the four bivariate conditions
+# CONDITIONS = [
+#     {
+#         'name': 'Condition_01',
+#         'f11': 0.1000,
+#         'prop_h2_latent1': 0.8000,
+#         'vg1': 0.6000,
+#         'vg2': 1.0000,
+#         'f22': 0.2000,
+#         'am22': 0.6500,
+#         'rg': 0.7500,
+#         # Fixed cross-trait parameters
+#         'am11': 0,
+#         'am12': 0,
+#         'am21': 0,
+#         'f12': 0,
+#         'f21': 0,
+#         're': 0,
+#         'prop_h2_latent2': 0.8/0.8
+#     },
+#     {
+#         'name': 'Condition_02',
+#         'f11': 0.2000,
+#         'prop_h2_latent1': 0.8000,
+#         'vg1': 0.8000,
+#         'vg2': 0.5000,
+#         'f22': 0.3000,
+#         'am22': 0.4500,
+#         'rg': 0.8500,
+#         # Fixed cross-trait parameters
+#         'am11': 0,
+#         'am12': 0,
+#         'am21': 0,
+#         'f12': 0,
+#         'f21': 0,
+#         're': 0,
+#         'prop_h2_latent2': 0.8/0.8
+#     },
+#     {
+#         'name': 'Condition_03',
+#         'f11': 0.1500,
+#         'prop_h2_latent1': 0.8000,
+#         'vg1': 0.6500,
+#         'vg2': 0.5000,
+#         'f22': 0.2500,
+#         'am22': 0.5500,
+#         'rg': 0.8500,
+#         # Fixed cross-trait parameters
+#         'am11': 0,
+#         'am12': 0,
+#         'am21': 0,
+#         'f12': 0,
+#         'f21': 0,
+#         're': 0,
+#         'prop_h2_latent2': 0.8/0.8
+#     },
+#     {
+#         'name': 'Condition_04',
+#         'f11': 0.1000,
+#         'prop_h2_latent1': 0.8000,
+#         'vg1': 0.6000,
+#         'vg2': 0.7500,
+#         'f22': 0.1500,
+#         'am22': 0.7500,
+#         'rg': 0.7500,
+#         # Fixed cross-trait parameters
+#         'am11': 0,
+#         'am12': 0,
+#         'am21': 0,
+#         'f12': 0,
+#         'f21': 0,
+#         're': 0,
+#         'prop_h2_latent2': 0.8/0.8
+#     }
+# ]
 CONDITIONS = [
     {
         'name': 'Condition_01',
@@ -34,7 +108,7 @@ CONDITIONS = [
         'vg2': 1.0000,
         'f22': 0.2000,
         'am22': 0.6500,
-        'rg': 0.7500,
+        'rg': 0.2500,
         # Fixed cross-trait parameters
         'am11': 0,
         'am12': 0,
@@ -42,7 +116,7 @@ CONDITIONS = [
         'f12': 0,
         'f21': 0,
         're': 0,
-        'prop_h2_latent2': 0.8/0.8
+        'prop_h2_latent2': .5
     },
     {
         'name': 'Condition_02',
@@ -99,10 +173,9 @@ CONDITIONS = [
         'prop_h2_latent2': 0.8/0.8
     }
 ]
-
 # Simulation parameters
-N_ITERATIONS = 50
-POP_SIZE = 20000
+N_ITERATIONS = 1
+POP_SIZE = 2000
 N_GENERATIONS = 15  # Total generations (will save last 3)
 FINAL_GENS = [12, 13, 14]  # Final 3 generations to analyze
 N_CV = 1000
@@ -203,7 +276,7 @@ def setup_matrices(params):
         'k2_matrix': k2_matrix
     }
 
-def run_single_iteration(iteration, condition_name, params, matrices):
+def run_single_iteration(iteration, condition_name, params, matrices, condition_dir):
     """
     Run a single simulation iteration.
     """
@@ -215,6 +288,11 @@ def run_single_iteration(iteration, condition_name, params, matrices):
     # Use hash of condition name to ensure different seeds per condition
     condition_hash = hash(condition_name) % 10000
     seed = condition_hash * 1000 + iteration + 1
+    
+    # Create iteration directory for summary file
+    iter_dir = condition_dir / f"Iteration_{iteration+1:02d}"
+    iter_dir.mkdir(parents=True, exist_ok=True)
+    summary_filename = str(iter_dir / f"iteration_{iteration+1:02d}_summary.txt")
     
     # Initialize simulation
     sim = AssortativeMatingSimulation(
@@ -228,7 +306,9 @@ def run_single_iteration(iteration, condition_name, params, matrices):
         avoid_inbreeding=True,
         save_each_gen=True,
         save_covs=True,
+        summary_file_scope="all",
         seed=seed,
+        output_summary_filename=summary_filename,
         **matrices
     )
     
@@ -441,7 +521,7 @@ def run_condition(condition, output_dir):
     for iteration in range(N_ITERATIONS):
         try:
             # Run simulation
-            results = run_single_iteration(iteration, condition_name, condition, matrices)
+            results = run_single_iteration(iteration, condition_name, condition, matrices, condition_dir)
             
             # Save iteration data (final 3 generations) using save_simulation_results
             iter_dir = condition_dir / f"Iteration_{iteration+1:02d}"

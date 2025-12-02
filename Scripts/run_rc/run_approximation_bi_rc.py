@@ -222,7 +222,7 @@ def setup_matrices(params):
         'k2_matrix': k2_matrix
     }
 
-def run_single_iteration(iteration, condition_name, params, matrices):
+def run_single_iteration(iteration, condition_name, params, matrices, scratch_dir):
     """
     Run a single simulation iteration.
     """
@@ -234,6 +234,11 @@ def run_single_iteration(iteration, condition_name, params, matrices):
     # Use hash of condition name to ensure different seeds per condition
     condition_hash = hash(condition_name) % 10000
     seed = condition_hash * 1000 + iteration + 1
+    
+    # Create iteration directory for summary file
+    iter_dir = scratch_dir / f"Iteration_{iteration+1:03d}"
+    iter_dir.mkdir(parents=True, exist_ok=True)
+    summary_filename = str(iter_dir / f"iteration_{iteration+1:03d}_summary.txt")
     
     # Initialize simulation
     sim = AssortativeMatingSimulation(
@@ -248,6 +253,7 @@ def run_single_iteration(iteration, condition_name, params, matrices):
         save_each_gen=True,
         save_covs=True,
         seed=seed,
+        output_summary_filename=summary_filename,
         **matrices
     )
     
@@ -464,7 +470,7 @@ def run_condition(condition, scratch_base, project_base, start_iter, end_iter):
     for iteration in range(start_iter, end_iter):
         try:
             # Run simulation
-            results = run_single_iteration(iteration, condition_name, condition, matrices)
+            results = run_single_iteration(iteration, condition_name, condition, matrices, scratch_dir)
             
             # Save iteration data to SCRATCH (final 3 generations)
             iter_dir = scratch_dir / f"Iteration_{iteration+1:03d}"

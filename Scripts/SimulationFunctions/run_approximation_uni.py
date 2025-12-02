@@ -151,7 +151,7 @@ def setup_matrices(params):
         'k2_matrix': k2_matrix
     }
 
-def run_single_iteration(iteration, params, matrices):
+def run_single_iteration(iteration, params, matrices, output_dir):
     """
     Run a single simulation iteration.
     """
@@ -161,6 +161,11 @@ def run_single_iteration(iteration, params, matrices):
     
     # Set seed for reproducibility
     seed = iteration + 1
+    
+    # Create iteration directory for summary file
+    iter_dir = output_dir / f"Iteration_{iteration+1:02d}"
+    iter_dir.mkdir(parents=True, exist_ok=True)
+    summary_filename = str(iter_dir / f"iteration_{iteration+1:02d}_summary.txt")
     
     # Initialize simulation
     sim = AssortativeMatingSimulation(
@@ -175,6 +180,7 @@ def run_single_iteration(iteration, params, matrices):
         save_each_gen=True,
         save_covs=True,
         seed=seed,
+        output_summary_filename=summary_filename,
         **matrices
     )
     
@@ -385,7 +391,7 @@ def run_simulations(params, output_dir):
     for iteration in range(N_ITERATIONS):
         try:
             # Run simulation
-            results = run_single_iteration(iteration, params, matrices)
+            results = run_single_iteration(iteration, params, matrices, output_dir)
             
             # Save iteration data (final 3 generations) using save_simulation_results
             iter_dir = output_dir / f"Iteration_{iteration+1:02d}"
