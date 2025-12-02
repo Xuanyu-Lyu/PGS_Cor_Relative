@@ -148,7 +148,7 @@ class AssortativeMatingSimulation:
                  cove_mat=None, f_mat=None, 
                  s_mat=None, 
                  a_mat=None, d_mat=None, 
-                 am_list=None, covy_mat=None, k2_matrix=None):
+                 am_list=None, mate_on_trait=None, covy_mat=None, k2_matrix=None):
 
         # ... (CV info loading and essential param check from previous version - remains unchanged) ...
         if cv_info is not None:
@@ -194,7 +194,18 @@ class AssortativeMatingSimulation:
         self.cove_mat = np.array(cove_mat); self.f_mat = np.array(f_mat)
         self.s_mat = np.array(s_mat) if s_mat is not None else None
         self.a_mat = np.array(a_mat); self.d_mat = np.array(d_mat)
-        self.am_list = [np.array(m) for m in am_list]
+        
+        # Handle am_list based on mate_on_trait
+        self.mate_on_trait = mate_on_trait  # None, 1, or 2
+        if self.mate_on_trait is not None:
+            if self.mate_on_trait not in [1, 2]:
+                raise ValueError("mate_on_trait must be None, 1, or 2")
+            # Single-trait mating: am_list should be list of scalars
+            self.am_list = [float(m) for m in am_list]
+        else:
+            # Dual-trait mating: am_list should be list of 2x2 matrices
+            self.am_list = [np.array(m) for m in am_list]
+        
         self.covy_mat = np.array(covy_mat); self.k2_matrix = np.array(k2_matrix)
         self.num_cvs = len(self.cv_info)
 
@@ -370,6 +381,12 @@ class AssortativeMatingSimulation:
         It matches individuals to a template dataset (Xsim) that has the target
         spousal correlation structure.
         Includes a step to make Xsim's sample covariance match the target covariance.
+        
+        Parameters:
+        -----------
+        pheno_mate_corr_target_xsim_mu : np.ndarray, float, or int
+            - If self.mate_on_trait is None: 2x2 matrix for dual-trait mating
+            - If self.mate_on_trait is 1 or 2: scalar value for single-trait mating
         """
         # 1. Define columns needed for the selected mating type to save memory
         ancestor_id_cols = ['Father.ID', 'Mother.ID', 'Fathers.Father.ID', 'Fathers.Mother.ID', 'Mothers.Father.ID', 'Mothers.Mother.ID']
@@ -382,7 +399,7 @@ class AssortativeMatingSimulation:
             cols_for_mating_slim = ["ID", "Sex"] + ["AO1", "AO2", "AL1", "AL2"] + ancestor_id_cols
         else: 
             raise ValueError(f"Invalid mating_type: {mating_type}")
-
+        
         # 2. Create slimmed-down DataFrames for mating
         males_condition = phendata_df_current_gen["Sex"] == 1
         females_condition = phendata_df_current_gen["Sex"] == 0
@@ -419,7 +436,23 @@ class AssortativeMatingSimulation:
                      'females.PHENDATA': pd.DataFrame(columns=phendata_df_current_gen.columns),
                      'achieved_spousal_corr': np.full((2,2), np.nan)}
 
-        # 5. Construct the 4x4 target correlation matrix for Xsim
+        # 5. Determine if we're doing single-trait or dual-trait mating
+        if self.mate_on_trait is not None:
+            # Single-trait mating mode
+            single_trait_mating = True
+            target_mu = float(pheno_mate_corr_target_xsim_mu)
+            mating_trait_index = self.mate_on_trait - 1  # Convert to 0-indexed
+            print(f"Single-trait mating mode: mating on trait {self.mate_on_trait} only (target mu={target_mu:.4f})")
+        else:
+            # Dual-trait mating mode
+            single_trait_mating = False
+            pheno_mate_corr_target_xsim_mu = np.asarray(pheno_mate_corr_target_xsim_mu)
+            if pheno_mate_corr_target_xsim_mu.shape != (2, 2):
+                raise ValueError(f"For dual-trait mating (mate_on_trait=None), pheno_mate_corr_target_xsim_mu must be a 2x2 matrix. Got shape: {pheno_mate_corr_target_xsim_mu.shape}")
+            print(f"Dual-trait mating mode: mating on both traits")
+
+        # 6. Construct the target correlation matrix for Xsim based on mating mode
+        # 6. Construct the target correlation matrix for Xsim based on mating mode
         corr_mating_vars_males = 0.0
         if len(males_phen_slim) > 1 and not males_phen_slim[['mating1','mating2']].isnull().values.any():
             corr_df_m = males_phen_slim[['mating1','mating2']].corr()
@@ -429,15 +462,27 @@ class AssortativeMatingSimulation:
         if len(females_phen_slim) > 1 and not females_phen_slim[['mating1','mating2']].isnull().values.any():
             corr_df_f = females_phen_slim[['mating1','mating2']].corr()
             if not corr_df_f.empty and not pd.isna(corr_df_f.iloc[0,1]): corr_mating_vars_females = corr_df_f.iloc[0,1]
+        
+        if single_trait_mating:
+            # Single-trait mating: only enforce correlation on the specified trait
+            # Other trait's correlation emerges naturally from the data
+            # We only need 2x2 Xsim matrix (one trait per sex)
+            matcor_xsim_target = np.eye(2)
+            matcor_xsim_target[0, 1] = matcor_xsim_target[1, 0] = target_mu  # Male mating_trait <-> Female mating_trait
+            xsim_dimension = 2  # Only one trait dimension for matching
             
-        matcor_xsim_target = np.eye(4) # This will be the target covariance/correlation matrix for Xsim
-        matcor_xsim_target[0,1] = matcor_xsim_target[1,0] = corr_mating_vars_males
-        matcor_xsim_target[2,3] = matcor_xsim_target[3,2] = corr_mating_vars_females
-        matcor_xsim_target[0:2, 2:4] = pheno_mate_corr_target_xsim_mu
-        matcor_xsim_target[2:4, 0:2] = pheno_mate_corr_target_xsim_mu.T
+        else:
+            # Dual-trait mating: enforce correlations on both traits
+            # Build full 4x4 matrix
+            matcor_xsim_target = np.eye(4)
+            matcor_xsim_target[0,1] = matcor_xsim_target[1,0] = corr_mating_vars_males
+            matcor_xsim_target[2,3] = matcor_xsim_target[3,2] = corr_mating_vars_females
+            matcor_xsim_target[0:2, 2:4] = pheno_mate_corr_target_xsim_mu
+            matcor_xsim_target[2:4, 0:2] = pheno_mate_corr_target_xsim_mu.T
+            xsim_dimension = 4  # Both traits for matching
         
         if not self._is_positive_definite(matcor_xsim_target):
-            print(f"Warning: Target MATCOR for Xsim (4x4) is not positive definite. Attempting correction. Original:\n{matcor_xsim_target}")
+            print(f"Warning: Target MATCOR for Xsim ({xsim_dimension}x{xsim_dimension}) is not positive definite. Attempting correction. Original:\n{matcor_xsim_target}")
     
             # Try nearest correlation matrix first (minimal perturbation)
             matcor_xsim_target = self._make_positive_definite_nearest(matcor_xsim_target)
@@ -448,14 +493,14 @@ class AssortativeMatingSimulation:
             
                 if not self._is_positive_definite(matcor_xsim_target):
                     print("Error: Could not make matrix positive definite. Using identity as fallback.")
-                    matcor_xsim_target = np.eye(4)
+                    matcor_xsim_target = np.eye(xsim_dimension)
                 else:
                     print(f"Success with shrinkage method. Corrected matrix:\n{matcor_xsim_target}")
             else:
                 print(f"Success with nearest correlation matrix. Corrected matrix:\n{matcor_xsim_target}")
 
         # Generate initial Xsim template data
-        x_sim_initial = np.random.multivariate_normal(np.zeros(4), matcor_xsim_target, size=n_potential_pairs, check_valid='warn')
+        x_sim_initial = np.random.multivariate_normal(np.zeros(xsim_dimension), matcor_xsim_target, size=n_potential_pairs, check_valid='warn')
 
         # *** NEW: Force x_sim_initial to have the empirical covariance of matcor_xsim_target ***
         if n_potential_pairs > x_sim_initial.shape[1]: # Need more samples than variables
@@ -492,22 +537,47 @@ class AssortativeMatingSimulation:
             print("Warning: Not enough samples (n_potential_pairs) to force empirical covariance for Xsim. Using original Xsim.")
             x_sim = x_sim_initial
         
-        x_sim_m, x_sim_f = x_sim[:, 0:2], x_sim[:, 2:4]
+        # Extract male and female Xsim profiles based on mating mode
+        if single_trait_mating:
+            # For single-trait mating, xsim is 2D: [male_trait1, female_trait1]
+            x_sim_m = x_sim[:, 0:1]  # Keep as 2D array with 1 column
+            x_sim_f = x_sim[:, 1:2]  # Keep as 2D array with 1 column
+        else:
+            # For dual-trait mating, xsim is 4D: [male_trait1, male_trait2, female_trait1, female_trait2]
+            x_sim_m = x_sim[:, 0:2]
+            x_sim_f = x_sim[:, 2:4]
         # *** END OF NEW EMPIRICAL COVARIANCE ADJUSTMENT ***
 
-        # 6. Match actual individuals to Xsim profiles
+        # 7. Match actual individuals to Xsim profiles
+        # 7. Match actual individuals to Xsim profiles
         male_indices_for_xsim = np.full(n_potential_pairs, -1, dtype=int)
         if not males_phen_slim.empty:
-            m_mating_values = males_phen_slim[['mating1', 'mating2']].values.astype(float)
-            m_mating_std = np.std(m_mating_values, axis=0, ddof=1); m_mating_std[m_mating_std < 1e-9] = 1.0
+            if single_trait_mating:
+                # Only use the specified trait for matching
+                mating_col = f'mating{self.mate_on_trait}'  # 'mating1' or 'mating2'
+                m_mating_values = males_phen_slim[[mating_col]].values.astype(float)
+            else:
+                # Use both traits for matching
+                m_mating_values = males_phen_slim[['mating1', 'mating2']].values.astype(float)
+            
+            m_mating_std = np.std(m_mating_values, axis=0, ddof=1)
+            m_mating_std[m_mating_std < 1e-9] = 1.0
             m_mating_scaled = (m_mating_values - np.mean(m_mating_values, axis=0)) / m_mating_std
             dm_dist = cdist(m_mating_scaled, x_sim_m)
             male_indices_for_xsim = self._find_unique_closest_indices(dm_dist)
 
         female_indices_for_xsim = np.full(n_potential_pairs, -1, dtype=int)
         if not females_phen_slim.empty:
-            f_mating_values = females_phen_slim[['mating1', 'mating2']].values.astype(float)
-            f_mating_std = np.std(f_mating_values, axis=0, ddof=1); f_mating_std[f_mating_std < 1e-9] = 1.0
+            if single_trait_mating:
+                # Only use the specified trait for matching
+                mating_col = f'mating{self.mate_on_trait}'  # 'mating1' or 'mating2'
+                f_mating_values = females_phen_slim[[mating_col]].values.astype(float)
+            else:
+                # Use both traits for matching
+                f_mating_values = females_phen_slim[['mating1', 'mating2']].values.astype(float)
+            
+            f_mating_std = np.std(f_mating_values, axis=0, ddof=1)
+            f_mating_std[f_mating_std < 1e-9] = 1.0
             f_mating_scaled = (f_mating_values - np.mean(f_mating_values, axis=0)) / f_mating_std
             df_dist = cdist(f_mating_scaled, x_sim_f)
             female_indices_for_xsim = self._find_unique_closest_indices(df_dist)
@@ -773,7 +843,12 @@ class AssortativeMatingSimulation:
 
         if self.save_each_gen: self.history['MATES'].append(None); self.history['PHEN'].append(self.phen_df.copy()); self.history['XO'].append(self.xo.copy()); self.history['XL'].append(self.xl.copy())
         if self.save_covs: self.covariances_log.append(None)
-        summary_gen0 = {'GEN': 0, 'NUM.CVs': self.num_cvs, 'MATE.COR': self.am_list[0].tolist() if len(self.am_list) > 0 else None, 'POPSIZE': n_pop}
+        # Handle both scalar (single-trait) and matrix (dual-trait) am_list values
+        if len(self.am_list) > 0:
+            mate_cor_val = self.am_list[0].tolist() if hasattr(self.am_list[0], 'tolist') else self.am_list[0]
+        else:
+            mate_cor_val = None
+        summary_gen0 = {'GEN': 0, 'NUM.CVs': self.num_cvs, 'MATE.COR': mate_cor_val, 'POPSIZE': n_pop}
         for comp_name, cols in {"VAO": ["AO_std1", "AO_std2"], "VAL": ["AL_std1", "AL_std2"], "VF":  ["F1", "F2"], "VE":  ["E1", "E2"], "VP":  ["Y1", "Y2"]}.items():
              if all(c in self.phen_df.columns for c in cols):
                  df_subset = self.phen_df[cols].dropna()
@@ -1084,10 +1159,18 @@ class AssortativeMatingSimulation:
                         thetaT_val = theta_Tp + theta_Tm
                 
                 # --- Store Summary for Current Generation ---
+                # Handle both scalar (single-trait) and matrix (dual-trait) am_list values
+                if r_cur_gen_num < len(self.am_list):
+                    mate_cor_val = self.am_list[r_cur_gen_num].tolist() if hasattr(self.am_list[r_cur_gen_num], 'tolist') else self.am_list[r_cur_gen_num]
+                elif self.am_list:
+                    mate_cor_val = self.am_list[-1].tolist() if hasattr(self.am_list[-1], 'tolist') else self.am_list[-1]
+                else:
+                    mate_cor_val = None
+                
                 summary_this_gen = {
                     'GEN': r_cur_gen_num, 
                     'NUM.CVs': self.num_cvs,
-                    'MATE.COR': self.am_list[r_cur_gen_num].tolist() if r_cur_gen_num < len(self.am_list) else (self.am_list[-1].tolist() if self.am_list else None), # AM parameters for *next* mating
+                    'MATE.COR': mate_cor_val, # AM parameters for *next* mating
                     'POPSIZE': len(self.phen_df)
                 }
                 

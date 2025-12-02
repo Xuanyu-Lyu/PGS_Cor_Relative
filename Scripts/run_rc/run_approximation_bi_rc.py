@@ -1,7 +1,8 @@
 """
 Simulation script for bivariate approximation conditions (SLURM batch version).
 Runs 200 iterations with N=40000 for four optimal parameter conditions.
-Each condition is a full bivariate model with cross-trait effects.
+Each condition uses single-trait mating on trait 2 only (mate_on_trait=2).
+This allows trait 1's mate correlation to emerge naturally from cross-trait correlations.
 Saves data for final 3 generations and PGS correlations summary statistics.
 Each SLURM task runs 20 iterations.
 """
@@ -190,12 +191,8 @@ def setup_matrices(params):
     # Total phenotypic covariance
     covy_mat = covg_mat + cove_mat
     
-    # Assortative mating matrix
-    am11 = params['am11']
-    am12 = params['am12']
-    am21 = params['am21']
+    # Get mate correlation for trait 2 (single-trait mating mode)
     am22 = params['am22']
-    mate_cor_mat = np.array([[am11, am12], [am21, am22]])
     
     # Vertical transmission matrix
     f11 = params['f11']
@@ -207,9 +204,9 @@ def setup_matrices(params):
     # Social homogamy matrix (set to zero - phenotypic AM only)
     s_mat = np.zeros((2, 2))
     
-    # AM list: one mate correlation matrix per generation (for phenotypic AM)
-    # The list should have num_generations entries, all with the same correlation
-    am_list = [mate_cor_mat.copy() for _ in range(N_GENERATIONS)]
+    # AM list: list of scalar values for single-trait mating on trait 2
+    # Each generation uses the same mate correlation value
+    am_list = [am22 for _ in range(N_GENERATIONS)]
     
     return {
         'cove_mat': cove_mat,
@@ -218,6 +215,7 @@ def setup_matrices(params):
         'a_mat': a_mat,
         'd_mat': delta_mat,
         'am_list': am_list,
+        'mate_on_trait': 2,  # Single-trait mating on trait 2
         'covy_mat': covy_mat,
         'k2_matrix': k2_matrix
     }
@@ -240,6 +238,9 @@ def run_single_iteration(iteration, condition_name, params, matrices, scratch_di
     iter_dir.mkdir(parents=True, exist_ok=True)
     summary_filename = str(iter_dir / f"iteration_{iteration+1:03d}_summary.txt")
     
+    # Extract mate_on_trait for single-trait mating mode
+    mate_on_trait = matrices.pop('mate_on_trait', None)
+    
     # Initialize simulation
     sim = AssortativeMatingSimulation(
         n_CV=N_CV,
@@ -254,6 +255,7 @@ def run_single_iteration(iteration, condition_name, params, matrices, scratch_di
         save_covs=True,
         seed=seed,
         output_summary_filename=summary_filename,
+        mate_on_trait=mate_on_trait,
         **matrices
     )
     
