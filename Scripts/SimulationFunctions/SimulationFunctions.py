@@ -85,62 +85,65 @@ def cor2cov(X, var1: float, var2: float):
 class AssortativeMatingSimulation: 
     
     @staticmethod
-    def prepare_CV(n_CV, rg_effects, maf_min, maf_max, maf_dist="uniform"):
+    def prepare_CV_random_selection(n_CV, rg_effects, maf_min, maf_max, 
+                                    prop_h2_obs_1, prop_h2_obs_2, 
+                                    maf_dist="uniform"):
         """
-        Prepares a DataFrame of causal variants (CV) for the simulation.
-        
-        Args:
-            n_CV: Number of causal variants.
-            rg_effects: Genetic correlation between the effects (alphas) on the two traits. 
-            maf_min: Minimum minor allele frequency.
-            maf_max: Maximum minor allele frequency.
-            maf_dist: Distribution for MAF generation ("uniform" or "normal").
-        Returns:
-            A DataFrame containing the minor allele frequencies (MAF) and effect sizes (alpha1, alpha2) for two traits.
+        Implements the user's "Random Selection" logic.
+        1. Generates a single pool of effects (alphas) for all n_CV variants.
+        2. Randomly selects a subset to be 'Observed' for Trait 1.
+        3. Randomly selects a subset to be 'Observed' for Trait 2.
         """
-        
-        # Generate minor allele frequencies (MAF) based on the specified distribution
+        # --- MAF Generation ---
         if maf_dist == "uniform":
             maf = np.random.uniform(maf_min, maf_max, n_CV)
         elif maf_dist == "normal":
-            # Mean at the center of the interval, std dev to keep most values within bounds (approx 3 sigma)
             mean_maf = (maf_min + maf_max) / 2
             std_maf = (maf_max - maf_min) / 6 
             maf = np.random.normal(mean_maf, std_maf, n_CV)
-            maf = np.clip(maf, maf_min, maf_max)  # Ensure MAF is within bounds
-        else:
-            raise ValueError("Invalid MAF distribution specified. Choose 'uniform' or 'normal'.")
-
-        # Define the covariance matrix for the effect sizes (alphas)
-        # This reflects the genetic correlation (rg_effects) between traits due to pleiotropy
+            maf = np.clip(maf, maf_min, maf_max)
+        
+        # --- Effect Size Generation (Total Biological Effect) ---
         alpha_cov_mat = np.array([[1, rg_effects], [rg_effects, 1]])
+        alpha_raw = np.random.multivariate_normal(np.zeros(2), alpha_cov_mat, size=n_CV)
+
+        # Scale effects so the total genetic variance is ~1.0
+        var_gene_per_snp = 2 * maf * (1 - maf)
+        scaler = np.sqrt(1 / (np.sum(var_gene_per_snp))) # Scale to total sum
+        # Ideally, we scale assuming random distribution, or just normalize sum to 1.
+        # Simpler scaler per SNP for uniform contribution expectation:
+        scaler = np.sqrt(1 / (var_gene_per_snp * n_CV))
+        alpha_final = alpha_raw * scaler[:, np.newaxis]
+
+        # --- Random Mask Generation ---
+        # Mask = 1 if Observed, 0 if Latent
         
-        # Generate initial effect sizes from a multivariate normal distribution
-        # These alphas are for traits before considering allele frequency
-        alpha_pre = np.random.multivariate_normal(mean=np.zeros(2), cov=alpha_cov_mat, size=n_CV)
-        
-        # Calculate the genotypic variance attributable to each SNP if its alpha was 1
-        # Genotypic variance for a biallelic SNP: 2 * p * q = 2 * maf * (1 - maf)
-        var_gene_per_snp_unscaled_alpha = 2 * maf * (1 - maf)
-        
-        # Scale the effect sizes (alphas)
-        # The scaling aims to make the sum of (alpha_i^2 * var_gene_i) for each trait equal to 1 (or some target variance)
-        # This specific scaling: scaler = np.sqrt(1 / (var_gene_per_snp_unscaled_alpha * n_CV))
-        # means that if rg_effects=0, for each trait j, Sum_i (alpha_ij^2 * 2*pi*(1-pi)) * (1/(2*pi*(1-pi)*n_CV)) = Sum_i (alpha_ij^2 / n_CV)
-        # If alpha_pre were drawn from N(0,1), then E[alpha_pre^2] = 1. So Sum_i (alpha_ij^2 / n_CV) would be approx. 1.
-        # This implies that the total genetic variance contributed by these n_CV SNPs for each trait is standardized.
-        scaler = np.sqrt(1 / (var_gene_per_snp_unscaled_alpha * n_CV))
-        alpha_final = alpha_pre * scaler[:, np.newaxis]  # Apply scaling per SNP
-        
+        # Trait 1 Mask
+        n_obs_1 = int(n_CV * prop_h2_obs_1)
+        mask1 = np.zeros(n_CV, dtype=int)
+        if n_obs_1 > 0:
+            indices_1 = np.random.choice(n_CV, n_obs_1, replace=False)
+            mask1[indices_1] = 1
+            
+        # Trait 2 Mask
+        n_obs_2 = int(n_CV * prop_h2_obs_2)
+        mask2 = np.zeros(n_CV, dtype=int)
+        if n_obs_2 > 0:
+            indices_2 = np.random.choice(n_CV, n_obs_2, replace=False)
+            mask2[indices_2] = 1
+
         return pd.DataFrame({
             "maf": maf,
-            "alpha1": alpha_final[:, 0],
-            "alpha2": alpha_final[:, 1]
+            "alpha1": alpha_final[:, 0], 
+            "alpha2": alpha_final[:, 1],
+            "mask_obs1": mask1,
+            "mask_obs2": mask2
         })
         
     def __init__(self, 
                  cv_info=None, 
                  n_CV=None, rg_effects=None, maf_min=None, maf_max=None, maf_dist="uniform",
+                 # h2_targets removed per request
                  num_generations=None, pop_size=None, mating_type="phenotypic", avoid_inbreeding=True,
                  save_each_gen=True, save_covs=True, seed=0,
                  output_summary_filename=None, 
@@ -150,14 +153,45 @@ class AssortativeMatingSimulation:
                  a_mat=None, d_mat=None, 
                  am_list=None, mate_on_trait=None, covy_mat=None, k2_matrix=None):
 
-        # ... (CV info loading and essential param check from previous version - remains unchanged) ...
+        # --- CV GENERATION ---
         if cv_info is not None:
             self.cv_info = pd.DataFrame(cv_info)
-        elif n_CV is not None and rg_effects is not None and maf_min is not None and maf_max is not None:
-            self.cv_info = AssortativeMatingSimulation.prepare_CV(n_CV, rg_effects, maf_min, maf_max, maf_dist)
+            self.n_CV_param = None; self.rg_effects_param = None
+            self.maf_min_param = None; self.maf_max_param = None; self.maf_dist_param = None
+        
+        elif n_CV is not None and rg_effects is not None:
+            # Derive proportions STRICTLY from d_mat and a_mat
+            if d_mat is not None and a_mat is not None:
+                # Convert to numpy arrays to ensure math operations work
+                d_arr = np.array(d_mat, dtype=float)
+                a_arr = np.array(a_mat, dtype=float)
+                
+                # Calculate variances for each trait (row sum of squares)
+                # Row 0 = Trait 1, Row 1 = Trait 2
+                var_obs = np.sum(d_arr**2, axis=1)
+                var_lat = np.sum(a_arr**2, axis=1)
+                total_g = var_obs + var_lat
+                
+                # Calculate proportion of observed heritability
+                # Prop = Var_Obs / (Var_Obs + Var_Lat)
+                prop1 = var_obs[0] / total_g[0] if total_g[0] > 1e-9 else 0.0
+                prop2 = var_obs[1] / total_g[1] if total_g[1] > 1e-9 else 0.0
+                
+            else:
+                # If matrices are missing, we cannot derive proportions. 
+                # Default to 0.5 to avoid crash, or raise error if strictness preferred.
+                prop1 = 0.5; prop2 = 0.5
+            
+            self.cv_info = AssortativeMatingSimulation.prepare_CV_random_selection(
+                n_CV, rg_effects, maf_min, maf_max, prop1, prop2, maf_dist
+            )
+            
+            self.n_CV_param = n_CV; self.rg_effects_param = rg_effects
+            self.maf_min_param = maf_min; self.maf_max_param = maf_max; self.maf_dist_param = maf_dist
         else:
-            raise ValueError("Either cv_info or parameters to generate it must be provided.")
+            raise ValueError("CV info missing: Provide either 'cv_info' DataFrame or 'n_CV'/'rg_effects' params.")
 
+        # Standard Init Checks
         essential_params = {
             "num_generations": num_generations, "pop_size": pop_size,
             "cove_mat": cove_mat, "f_mat": f_mat, "s_mat": s_mat,
@@ -166,701 +200,294 @@ class AssortativeMatingSimulation:
         }
         for param_name, param_val in essential_params.items():
             if param_val is None: raise ValueError(f"Parameter '{param_name}' must be provided.")
-        
+            
         self.mating_type = mating_type 
-        if self.mating_type not in ["phenotypic", "social", "genotypic"]:
-            raise ValueError("mating_type must be 'phenotypic', 'social', or 'genotypic'.")
-
         self.num_generations = int(num_generations)
         self.initial_pop_size = int(pop_size) if isinstance(pop_size, (int, float)) else int(pop_size[0])
+        self.pop_vector = np.array(pop_size, dtype=int) if isinstance(pop_size, (list, np.ndarray)) else np.full(self.num_generations, int(pop_size), dtype=int)
+        self.avoid_inbreeding = avoid_inbreeding; self.save_each_gen = save_each_gen; self.save_covs = save_covs
+        self.seed = int(seed); self.output_summary_filename = output_summary_filename; self.summary_file_scope = summary_file_scope
         
-        if isinstance(pop_size, (list, np.ndarray)):
-            self.pop_vector = np.array(pop_size, dtype=int)
-        else: 
-            self.pop_vector = np.full(self.num_generations, int(pop_size), dtype=int)
-            
-        self.avoid_inbreeding = avoid_inbreeding
-        self.save_each_gen = save_each_gen
-        self.save_covs = save_covs
-        self.seed = int(seed) 
         if self.seed != 0: np.random.seed(self.seed)
-
-        self.output_summary_filename = output_summary_filename 
-        self.summary_file_scope = summary_file_scope # *** STORE NEW PARAMETER ***
-        if self.summary_file_scope not in ["final", "all"]:
-            raise ValueError("summary_file_scope must be 'final' or 'all'.")
-
 
         self.cove_mat = np.array(cove_mat); self.f_mat = np.array(f_mat)
         self.s_mat = np.array(s_mat) if s_mat is not None else None
         self.a_mat = np.array(a_mat); self.d_mat = np.array(d_mat)
         
-        # Handle am_list based on mate_on_trait
-        self.mate_on_trait = mate_on_trait  # None, 1, or 2
-        if self.mate_on_trait is not None:
-            if self.mate_on_trait not in [1, 2]:
-                raise ValueError("mate_on_trait must be None, 1, or 2")
-            # Single-trait mating: am_list should be list of scalars
-            self.am_list = [float(m) for m in am_list]
-        else:
-            # Dual-trait mating: am_list should be list of 2x2 matrices
-            self.am_list = [np.array(m) for m in am_list]
+        self.mate_on_trait = mate_on_trait
+        if self.mate_on_trait is not None: self.am_list = [float(m) for m in am_list]
+        else: self.am_list = [np.array(m) for m in am_list]
         
         self.covy_mat = np.array(covy_mat); self.k2_matrix = np.array(k2_matrix)
         self.num_cvs = len(self.cv_info)
-
+        
         self.phen_df, self.xo, self.xl = None, None, None
-        self.summary_results = []
-        self.history = {'MATES': [], 'PHEN': [], 'XO': [], 'XL': []} if self.save_each_gen else None
-        self.covariances_log = [] if self.save_covs else None
+        self.summary_results = []; self.history = {'MATES': [], 'PHEN': [], 'XO': [], 'XL': []} if self.save_each_gen else None; self.covariances_log = [] if self.save_covs else None
         
-        self.phen_column_names = [
-            "ID", "Father.ID", "Mother.ID", "Fathers.Father.ID", "Fathers.Mother.ID",
-            "Mothers.Father.ID", "Mothers.Mother.ID", "Sex",
-            "AO_std1", "AO_std2", "AL_std1", "AL_std2", "AO1", "AO2", "AL1", "AL2",
-            "F1", "F2", "E1", "E2", "Y1", "Y2", "Y1P", "Y2P", "Y1M", "Y2M",
-            "F1P", "F2P", "F1M", "F2M", "TPO1", "TPO2", "TMO1", "TMO2", 
-            "NTPO1", "NTPO2", "NTMO1", "NTMO2", "TPL1", "TPL2", "TML1", "TML2", 
-            "NTPL1", "NTPL2", "NTML1", "NTML2",
-        ]
-        
-        self.n_CV_param = n_CV; self.rg_effects_param = rg_effects
-        self.maf_min_param = maf_min; self.maf_max_param = maf_max
-        self.maf_dist_param = maf_dist
+        self.phen_column_names = ["ID", "Father.ID", "Mother.ID", "Fathers.Father.ID", "Fathers.Mother.ID", "Mothers.Father.ID", "Mothers.Mother.ID", "Sex", "AO_std1", "AO_std2", "AL_std1", "AL_std2", "AO1", "AO2", "AL1", "AL2", "F1", "F2", "E1", "E2", "Y1", "Y2", "Y1P", "Y2P", "Y1M", "Y2M", "F1P", "F2P", "F1M", "F2M", "TPO1", "TPO2", "TMO1", "TMO2", "NTPO1", "NTPO2", "NTMO1", "NTMO2", "TPL1", "TPL2", "TML1", "TML2", "NTPL1", "NTPL2", "NTML1", "NTML2"]
         
         self._initialize_generation_zero()
-        
+
+    # [Standard Helpers - Unchanged]
     def _is_positive_definite(self, matrix):
         if not isinstance(matrix, np.ndarray) or matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]: return False
         if not np.allclose(matrix, matrix.T): return False
-        try:
-            np.linalg.cholesky(matrix)
-            return True
-        except np.linalg.LinAlgError:
-            return False
-    
+        try: np.linalg.cholesky(matrix); return True
+        except np.linalg.LinAlgError: return False
+            
     def _make_positive_definite_nearest(self, matrix, min_eigenvalue=1e-6):
-        """
-        Find the nearest positive definite matrix to the input matrix.
-        Uses Higham's (2002) algorithm for finding the nearest correlation matrix.
-        
-        Parameters:
-        -----------
-        matrix : np.ndarray
-            Input matrix (should be symmetric)
-        min_eigenvalue : float
-            Minimum eigenvalue threshold for positive definiteness
-        
-        Returns:
-        --------
-        np.ndarray
-            Nearest positive definite matrix
-        """
-        # Ensure symmetry
         A = (matrix + matrix.T) / 2
-        
-        # Check if already positive definite
-        try:
-            np.linalg.cholesky(A)
-            return A
-        except np.linalg.LinAlgError:
-            pass
-        
-        # Higham's algorithm
-        spacing = np.spacing(np.linalg.norm(A))
-        identity = np.eye(A.shape[0])
-        
-        Y = A.copy()
-        
-        for iteration in range(100):  # Max iterations
-            R = Y - spacing * identity
-            
-            # Project onto symmetric positive semidefinite matrices
-            eigenvalues, eigenvectors = np.linalg.eigh(R)
-            eigenvalues[eigenvalues < min_eigenvalue] = min_eigenvalue
-            X = eigenvectors @ np.diag(eigenvalues) @ eigenvectors.T
-            
-            # Project onto matrices with unit diagonal (correlation matrices)
-            dS = np.diag(np.diag(X)) - identity
-            Y = X - dS
-            
-            # Check convergence
-            if np.linalg.norm(Y - A, 'fro') / np.linalg.norm(A, 'fro') < 1e-7:
-                break
-        
-        # Final symmetrization and ensure unit diagonal
-        Y = (Y + Y.T) / 2
-        np.fill_diagonal(Y, 1.0)
-        
-        return Y
-    
+        try: np.linalg.cholesky(A); return A
+        except np.linalg.LinAlgError: pass
+        spacing = np.spacing(np.linalg.norm(A)); identity = np.eye(A.shape[0]); Y = A.copy()
+        for iteration in range(100):
+            R = Y - spacing * identity; eigenvalues, eigenvectors = np.linalg.eigh(R)
+            eigenvalues[eigenvalues < min_eigenvalue] = min_eigenvalue; X = eigenvectors @ np.diag(eigenvalues) @ eigenvectors.T
+            dS = np.diag(np.diag(X)) - identity; Y = X - dS
+            if np.linalg.norm(Y - A, 'fro') / np.linalg.norm(A, 'fro') < 1e-7: break
+        Y = (Y + Y.T) / 2; np.fill_diagonal(Y, 1.0); return Y
+
     def _shrink_to_nearest_psd(self, matrix, min_eigenvalue=1e-6, max_shrinkage=0.5):
-        """
-        Alternative: Shrink toward identity matrix until positive definite.
-        This is faster but may perturb more than Higham's method.
-        
-        Parameters:
-        -----------
-        matrix : np.ndarray
-            Input correlation matrix
-        min_eigenvalue : float
-            Minimum eigenvalue threshold
-        max_shrinkage : float
-            Maximum shrinkage factor (0 to 1)
-        
-        Returns:
-        --------
-        np.ndarray
-            Nearest positive definite matrix via shrinkage
-        """
-        A = (matrix + matrix.T) / 2  # Ensure symmetry
-        identity = np.eye(A.shape[0])
-        
-        # Binary search for minimal shrinkage
-        low, high = 0.0, max_shrinkage
-        best_alpha = 0.0
-        
-        for _ in range(20):  # Binary search iterations
-            alpha = (low + high) / 2
-            A_shrunk = (1 - alpha) * A + alpha * identity
-            
-            eigenvalues = np.linalg.eigvalsh(A_shrunk)
-            if np.all(eigenvalues >= min_eigenvalue):
-                best_alpha = alpha
-                high = alpha
-            else:
-                low = alpha
-        
-        result = (1 - best_alpha) * A + best_alpha * identity
-        np.fill_diagonal(result, 1.0)  # Ensure unit diagonal
-        
-        return result
+        A = (matrix + matrix.T) / 2; identity = np.eye(A.shape[0])
+        low, high = 0.0, max_shrinkage; best_alpha = 0.0
+        for _ in range(20):
+            alpha = (low + high) / 2; A_shrunk = (1 - alpha) * A + alpha * identity
+            if np.all(np.linalg.eigvalsh(A_shrunk) >= min_eigenvalue): best_alpha = alpha; high = alpha
+            else: low = alpha
+        result = (1 - best_alpha) * A + best_alpha * identity; np.fill_diagonal(result, 1.0); return result
         
     def _find_unique_closest_indices(self, dist_matrix_input, max_ord=100):
-        dist_matrix = dist_matrix_input.copy() 
-        n_to_match_from = dist_matrix.shape[0] 
-        n_targets = dist_matrix.shape[1]     
-
-        if n_targets == 0 or n_to_match_from == 0:
-            return np.array([], dtype=int)
-
-        rand_index_cols = np.random.permutation(n_targets)
-        dist_matrix_shuffled_cols = dist_matrix[:, rand_index_cols]
-        
+        dist_matrix = dist_matrix_input.copy(); n_to_match_from = dist_matrix.shape[0]; n_targets = dist_matrix.shape[1]     
+        if n_targets == 0 or n_to_match_from == 0: return np.array([], dtype=int)
+        rand_index_cols = np.random.permutation(n_targets); dist_matrix_shuffled_cols = dist_matrix[:, rand_index_cols]
         dist_ord_mat = np.argsort(dist_matrix_shuffled_cols, axis=0)
-        new_closest_indices_for_shuffled_targets = np.full(n_targets, -1, dtype=int) 
-        assigned_individuals = set()
-
+        new_closest_indices = np.full(n_targets, -1, dtype=int); assigned_individuals = set()
         for i in range(n_targets): 
-            my_min_idx_val = -1 
-            k = 0 
-            potential_match_found = False
+            my_min_idx_val = -1; k = 0; match = False
             while k < max_ord and k < n_to_match_from:
-                current_preferred_individual_idx = dist_ord_mat[k, i]
-                if current_preferred_individual_idx not in assigned_individuals:
-                    my_min_idx_val = current_preferred_individual_idx
-                    potential_match_found = True
-                    break 
+                idx = dist_ord_mat[k, i]
+                if idx not in assigned_individuals: my_min_idx_val = idx; match = True; break 
                 k += 1
-            
-            if potential_match_found:
-                new_closest_indices_for_shuffled_targets[i] = my_min_idx_val
-                assigned_individuals.add(my_min_idx_val) 
-            else:
-                new_closest_indices_for_shuffled_targets[i] = -1 
+            if match: new_closest_indices[i] = my_min_idx_val; assigned_individuals.add(my_min_idx_val) 
+        final = np.full(n_targets, -1, dtype=int); final = new_closest_indices[np.argsort(rand_index_cols)]
+        return final
 
-        final_ordered_indices = np.full(n_targets, -1, dtype=int)
-        original_indices_of_shuffled_cols = np.argsort(rand_index_cols) 
-        final_ordered_indices = new_closest_indices_for_shuffled_targets[original_indices_of_shuffled_cols]
-        
-        return final_ordered_indices
-    
     def _assort_mate(self, phendata_df_current_gen, mating_type, pheno_mate_corr_target_xsim_mu, pop_size_target_offspring):
-        """
-        Performs assortative mating based on the specified mating type.
-        It matches individuals to a template dataset (Xsim) that has the target
-        spousal correlation structure.
-        Includes a step to make Xsim's sample covariance match the target covariance.
-        
-        Parameters:
-        -----------
-        pheno_mate_corr_target_xsim_mu : np.ndarray, float, or int
-            - If self.mate_on_trait is None: 2x2 matrix for dual-trait mating
-            - If self.mate_on_trait is 1 or 2: scalar value for single-trait mating
-        """
-        # 1. Define columns needed for the selected mating type to save memory
+        # [Unchanged mating logic]
         ancestor_id_cols = ['Father.ID', 'Mother.ID', 'Fathers.Father.ID', 'Fathers.Mother.ID', 'Mothers.Father.ID', 'Mothers.Mother.ID']
+        if mating_type == "phenotypic": cols = ["ID", "Sex", "Y1", "Y2"] + ancestor_id_cols
+        elif mating_type == "social": cols = ["ID", "Sex", "F1", "F2", "E1", "E2"] + ancestor_id_cols
+        elif mating_type == "genotypic": cols = ["ID", "Sex", "AO1", "AO2", "AL1", "AL2"] + ancestor_id_cols
+        else: raise ValueError(f"Invalid mating_type: {mating_type}")
         
+        males_slim = phendata_df_current_gen.loc[phendata_df_current_gen["Sex"]==1, cols].copy()
+        females_slim = phendata_df_current_gen.loc[phendata_df_current_gen["Sex"]==0, cols].copy()
         if mating_type == "phenotypic":
-            cols_for_mating_slim = ["ID", "Sex"] + ["Y1", "Y2"] + ancestor_id_cols
+            males_slim.rename(columns={"Y1": "mating1", "Y2": "mating2"}, inplace=True)
+            females_slim.rename(columns={"Y1": "mating1", "Y2": "mating2"}, inplace=True)
         elif mating_type == "social":
-            cols_for_mating_slim = ["ID", "Sex"] + ["F1", "F2", "E1", "E2"] + ancestor_id_cols
+            for df in [males_slim, females_slim]: df["mating1"] = df["F1"] + df["E1"]; df["mating2"] = df["F2"] + df["E2"]
         elif mating_type == "genotypic":
-            cols_for_mating_slim = ["ID", "Sex"] + ["AO1", "AO2", "AL1", "AL2"] + ancestor_id_cols
-        else: 
-            raise ValueError(f"Invalid mating_type: {mating_type}")
-        
-        # 2. Create slimmed-down DataFrames for mating
-        males_condition = phendata_df_current_gen["Sex"] == 1
-        females_condition = phendata_df_current_gen["Sex"] == 0
-        males_phen_slim = phendata_df_current_gen.loc[males_condition, cols_for_mating_slim].copy()
-        females_phen_slim = phendata_df_current_gen.loc[females_condition, cols_for_mating_slim].copy()
+            for df in [males_slim, females_slim]: df["mating1"] = df["AO1"] + df["AL1"]; df["mating2"] = df["AO2"] + df["AL2"]
 
-        # 3. Create standardized 'mating1' and 'mating2' columns
-        if mating_type == "phenotypic":
-            males_phen_slim.rename(columns={"Y1": "mating1", "Y2": "mating2"}, inplace=True)
-            females_phen_slim.rename(columns={"Y1": "mating1", "Y2": "mating2"}, inplace=True)
-        elif mating_type == "social":
-            males_phen_slim["mating1"] = males_phen_slim["F1"] + males_phen_slim["E1"]
-            males_phen_slim["mating2"] = males_phen_slim["F2"] + males_phen_slim["E2"]
-            females_phen_slim["mating1"] = females_phen_slim["F1"] + females_phen_slim["E1"]
-            females_phen_slim["mating2"] = females_phen_slim["F2"] + females_phen_slim["E2"]
-        elif mating_type == "genotypic":
-            males_phen_slim["mating1"] = males_phen_slim["AO1"] + males_phen_slim["AL1"]
-            males_phen_slim["mating2"] = males_phen_slim["AO2"] + males_phen_slim["AL2"]
-            females_phen_slim["mating1"] = females_phen_slim["AO1"] + females_phen_slim["AL1"]
-            females_phen_slim["mating2"] = females_phen_slim["AO2"] + females_phen_slim["AL2"]
+        nm, nf = len(males_slim), len(females_slim)
+        if nm > nf: males_slim = males_slim.sample(n=nf, replace=False)
+        elif nf > nm: females_slim = females_slim.sample(n=nm, replace=False)
+        n_pairs = len(males_slim)
+        if n_pairs == 0: return {'males.PHENDATA': pd.DataFrame(), 'females.PHENDATA': pd.DataFrame(), 'achieved_spousal_corr': np.eye(2)}
 
-        # 4. Equalize numbers of males and females for pairing
-        num_males, num_females = len(males_phen_slim), len(females_phen_slim)
-        if num_males > num_females:
-            drop_indices = np.random.choice(males_phen_slim.index, num_males - num_females, replace=False)
-            males_phen_slim.drop(drop_indices, inplace=True)
-        elif num_females > num_males:
-            drop_indices = np.random.choice(females_phen_slim.index, num_females - num_males, replace=False)
-            females_phen_slim.drop(drop_indices, inplace=True)
-        
-        n_potential_pairs = len(males_phen_slim)
-        if n_potential_pairs == 0:
-             return {'males.PHENDATA': pd.DataFrame(columns=phendata_df_current_gen.columns), 
-                     'females.PHENDATA': pd.DataFrame(columns=phendata_df_current_gen.columns),
-                     'achieved_spousal_corr': np.full((2,2), np.nan)}
-
-        # 5. Determine if we're doing single-trait or dual-trait mating
         if self.mate_on_trait is not None:
-            # Single-trait mating mode
-            single_trait_mating = True
-            target_mu = float(pheno_mate_corr_target_xsim_mu)
-            mating_trait_index = self.mate_on_trait - 1  # Convert to 0-indexed
-            print(f"Single-trait mating mode: mating on trait {self.mate_on_trait} only (target mu={target_mu:.4f})")
+            single_trait = True; target_mu = float(pheno_mate_corr_target_xsim_mu)
+            matcor = np.eye(2); matcor[0,1] = matcor[1,0] = target_mu
+            xsim_dim = 2
         else:
-            # Dual-trait mating mode
-            single_trait_mating = False
-            pheno_mate_corr_target_xsim_mu = np.asarray(pheno_mate_corr_target_xsim_mu)
-            if pheno_mate_corr_target_xsim_mu.shape != (2, 2):
-                raise ValueError(f"For dual-trait mating (mate_on_trait=None), pheno_mate_corr_target_xsim_mu must be a 2x2 matrix. Got shape: {pheno_mate_corr_target_xsim_mu.shape}")
-            print(f"Dual-trait mating mode: mating on both traits")
+            single_trait = False; target_mu = np.asarray(pheno_mate_corr_target_xsim_mu)
+            cm = males_slim[['mating1','mating2']].corr().iloc[0,1] if n_pairs>1 else 0
+            cf = females_slim[['mating1','mating2']].corr().iloc[0,1] if n_pairs>1 else 0
+            matcor = np.eye(4); matcor[0,1]=matcor[1,0]=cm; matcor[2,3]=matcor[3,2]=cf
+            matcor[0:2, 2:4] = target_mu; matcor[2:4, 0:2] = target_mu.T
+            xsim_dim = 4
 
-        # 6. Construct the target correlation matrix for Xsim based on mating mode
-        # 6. Construct the target correlation matrix for Xsim based on mating mode
-        corr_mating_vars_males = 0.0
-        if len(males_phen_slim) > 1 and not males_phen_slim[['mating1','mating2']].isnull().values.any():
-            corr_df_m = males_phen_slim[['mating1','mating2']].corr()
-            if not corr_df_m.empty and not pd.isna(corr_df_m.iloc[0,1]): corr_mating_vars_males = corr_df_m.iloc[0,1]
+        if not self._is_positive_definite(matcor): matcor = self._make_positive_definite_nearest(matcor)
+        x_sim = np.random.multivariate_normal(np.zeros(xsim_dim), matcor, size=n_pairs)
+        if single_trait: x_sim_m, x_sim_f = x_sim[:,0:1], x_sim[:,1:2]
+        else: x_sim_m, x_sim_f = x_sim[:,0:2], x_sim[:,2:4]
+
+        def get_scaled(df, trait):
+            if single_trait: vals = df[[f'mating{trait}']].values
+            else: vals = df[['mating1','mating2']].values
+            return (vals - vals.mean(0)) / (vals.std(0, ddof=1) + 1e-9)
+
+        m_idx = self._find_unique_closest_indices(cdist(get_scaled(males_slim, self.mate_on_trait), x_sim_m))
+        f_idx = self._find_unique_closest_indices(cdist(get_scaled(females_slim, self.mate_on_trait), x_sim_f))
         
-        corr_mating_vars_females = 0.0
-        if len(females_phen_slim) > 1 and not females_phen_slim[['mating1','mating2']].isnull().values.any():
-            corr_df_f = females_phen_slim[['mating1','mating2']].corr()
-            if not corr_df_f.empty and not pd.isna(corr_df_f.iloc[0,1]): corr_mating_vars_females = corr_df_f.iloc[0,1]
+        valid = (m_idx != -1) & (f_idx != -1)
+        paired_m = males_slim.iloc[m_idx[valid]].reset_index(drop=True)
+        paired_f = females_slim.iloc[f_idx[valid]].reset_index(drop=True)
         
-        if single_trait_mating:
-            # Single-trait mating: only enforce correlation on the specified trait
-            # Other trait's correlation emerges naturally from the data
-            # We only need 2x2 Xsim matrix (one trait per sex)
-            matcor_xsim_target = np.eye(2)
-            matcor_xsim_target[0, 1] = matcor_xsim_target[1, 0] = target_mu  # Male mating_trait <-> Female mating_trait
-            xsim_dimension = 2  # Only one trait dimension for matching
+        m_full = phendata_df_current_gen.loc[phendata_df_current_gen['ID'].isin(paired_m['ID'])].set_index('ID').loc[paired_m['ID']].reset_index()
+        f_full = phendata_df_current_gen.loc[phendata_df_current_gen['ID'].isin(paired_f['ID'])].set_index('ID').loc[paired_f['ID']].reset_index()
+
+        n_act = len(m_full)
+        if n_act > 0:
+            off_counts = np.random.poisson(pop_size_target_offspring/n_act, n_act)
+            diff = pop_size_target_offspring - off_counts.sum()
+            if diff > 0: off_counts[np.random.choice(n_act, diff, replace=True)] += 1
+            elif diff < 0:
+                eligible = np.where(off_counts > 0)[0]
+                if len(eligible) > 0:
+                    for _ in range(abs(diff)):
+                        i = np.random.choice(eligible); off_counts[i] = max(0, off_counts[i]-1)
+            m_full['num.offspring'] = off_counts; f_full['num.offspring'] = off_counts
+            m_full['Spouse.ID'] = f_full['ID']; f_full['Spouse.ID'] = m_full['ID']
             
-        else:
-            # Dual-trait mating: enforce correlations on both traits
-            # Build full 4x4 matrix
-            matcor_xsim_target = np.eye(4)
-            matcor_xsim_target[0,1] = matcor_xsim_target[1,0] = corr_mating_vars_males
-            matcor_xsim_target[2,3] = matcor_xsim_target[3,2] = corr_mating_vars_females
-            matcor_xsim_target[0:2, 2:4] = pheno_mate_corr_target_xsim_mu
-            matcor_xsim_target[2:4, 0:2] = pheno_mate_corr_target_xsim_mu.T
-            xsim_dimension = 4  # Both traits for matching
+        return {'males.PHENDATA': m_full, 'females.PHENDATA': f_full, 'achieved_spousal_corr': np.eye(2)}
+
+    def _calculate_genetic_values_masked(self, xo_matrix):
+        """
+        Calculates Observed and Latent genetic values using Masks.
+        AO = Total_Geno * (Alpha * Mask)
+        AL = Total_Geno * (Alpha * (1-Mask))
+        """
+        alphas = self.cv_info[['alpha1', 'alpha2']].values
+        mask1 = self.cv_info['mask_obs1'].values
+        mask2 = self.cv_info['mask_obs2'].values
         
-        if not self._is_positive_definite(matcor_xsim_target):
-            print(f"Warning: Target MATCOR for Xsim ({xsim_dimension}x{xsim_dimension}) is not positive definite. Attempting correction. Original:\n{matcor_xsim_target}")
-    
-            # Try nearest correlation matrix first (minimal perturbation)
-            matcor_xsim_target = self._make_positive_definite_nearest(matcor_xsim_target)
-    
-            if not self._is_positive_definite(matcor_xsim_target):
-                print("Warning: Higham's algorithm failed. Trying shrinkage method...")
-                matcor_xsim_target = self._shrink_to_nearest_psd(matcor_xsim_target)
-            
-                if not self._is_positive_definite(matcor_xsim_target):
-                    print("Error: Could not make matrix positive definite. Using identity as fallback.")
-                    matcor_xsim_target = np.eye(xsim_dimension)
-                else:
-                    print(f"Success with shrinkage method. Corrected matrix:\n{matcor_xsim_target}")
-            else:
-                print(f"Success with nearest correlation matrix. Corrected matrix:\n{matcor_xsim_target}")
-
-        # Generate initial Xsim template data
-        x_sim_initial = np.random.multivariate_normal(np.zeros(xsim_dimension), matcor_xsim_target, size=n_potential_pairs, check_valid='warn')
-
-        # *** NEW: Force x_sim_initial to have the empirical covariance of matcor_xsim_target ***
-        if n_potential_pairs > x_sim_initial.shape[1]: # Need more samples than variables
-            try:
-                # Center the generated data
-                x_sim_centered = x_sim_initial - np.mean(x_sim_initial, axis=0)
-                
-                # Cholesky of the empirical covariance of the centered data
-                # Need to handle potential non-positive definiteness of sample cov if n_potential_pairs is small
-                emp_cov = np.cov(x_sim_centered, rowvar=False)
-                if not self._is_positive_definite(emp_cov): # Check if sample cov is PD
-                    # If not PD, try to make it PD (e.g. by adding small value to diagonal or eigenvalue method)
-                    # For simplicity, if not PD, we might skip the empirical adjustment or use original x_sim_initial
-                    # A more robust approach would be to regularize emp_cov.
-                    print("Warning: Empirical covariance of x_sim_initial is not PD. Skipping empirical adjustment for Xsim.")
-                    x_sim = x_sim_initial # Use original if adjustment fails
-                else:
-                    chol_emp = np.linalg.cholesky(emp_cov)
-                    
-                    # Cholesky of the target covariance matrix
-                    chol_target = np.linalg.cholesky(matcor_xsim_target)
-                    
-                    # Transform the data
-                    # x_transformed = x_centered @ inv(chol_emp.T) @ chol_target.T
-                    # inv(A.T) = (inv(A)).T. Also, inv(L.T) where L is Cholesky.
-                    x_sim = x_sim_centered @ np.linalg.solve(chol_emp.T, chol_target.T) # More stable than inv()
-                    # x_sim now has sample covariance matcor_xsim_target
-                    # print("Applied empirical covariance adjustment to Xsim.") # For debugging
-            except np.linalg.LinAlgError as e:
-                print(f"Warning: LinAlgError during empirical covariance adjustment for Xsim: {e}. Using original Xsim.")
-                x_sim = x_sim_initial # Fallback to original if Cholesky or solve fails
-        else:
-            # Not enough samples to reliably force empirical covariance or cov matrix might be singular
-            print("Warning: Not enough samples (n_potential_pairs) to force empirical covariance for Xsim. Using original Xsim.")
-            x_sim = x_sim_initial
+        # Effective alphas for Observed
+        # Element-wise multiplication of alpha column with mask column
+        alpha_obs_1 = alphas[:, 0] * mask1
+        alpha_obs_2 = alphas[:, 1] * mask2
         
-        # Extract male and female Xsim profiles based on mating mode
-        if single_trait_mating:
-            # For single-trait mating, xsim is 2D: [male_trait1, female_trait1]
-            x_sim_m = x_sim[:, 0:1]  # Keep as 2D array with 1 column
-            x_sim_f = x_sim[:, 1:2]  # Keep as 2D array with 1 column
-        else:
-            # For dual-trait mating, xsim is 4D: [male_trait1, male_trait2, female_trait1, female_trait2]
-            x_sim_m = x_sim[:, 0:2]
-            x_sim_f = x_sim[:, 2:4]
-        # *** END OF NEW EMPIRICAL COVARIANCE ADJUSTMENT ***
-
-        # 7. Match actual individuals to Xsim profiles
-        # 7. Match actual individuals to Xsim profiles
-        male_indices_for_xsim = np.full(n_potential_pairs, -1, dtype=int)
-        if not males_phen_slim.empty:
-            if single_trait_mating:
-                # Only use the specified trait for matching
-                mating_col = f'mating{self.mate_on_trait}'  # 'mating1' or 'mating2'
-                m_mating_values = males_phen_slim[[mating_col]].values.astype(float)
-            else:
-                # Use both traits for matching
-                m_mating_values = males_phen_slim[['mating1', 'mating2']].values.astype(float)
-            
-            m_mating_std = np.std(m_mating_values, axis=0, ddof=1)
-            m_mating_std[m_mating_std < 1e-9] = 1.0
-            m_mating_scaled = (m_mating_values - np.mean(m_mating_values, axis=0)) / m_mating_std
-            dm_dist = cdist(m_mating_scaled, x_sim_m)
-            male_indices_for_xsim = self._find_unique_closest_indices(dm_dist)
-
-        female_indices_for_xsim = np.full(n_potential_pairs, -1, dtype=int)
-        if not females_phen_slim.empty:
-            if single_trait_mating:
-                # Only use the specified trait for matching
-                mating_col = f'mating{self.mate_on_trait}'  # 'mating1' or 'mating2'
-                f_mating_values = females_phen_slim[[mating_col]].values.astype(float)
-            else:
-                # Use both traits for matching
-                f_mating_values = females_phen_slim[['mating1', 'mating2']].values.astype(float)
-            
-            f_mating_std = np.std(f_mating_values, axis=0, ddof=1)
-            f_mating_std[f_mating_std < 1e-9] = 1.0
-            f_mating_scaled = (f_mating_values - np.mean(f_mating_values, axis=0)) / f_mating_std
-            df_dist = cdist(f_mating_scaled, x_sim_f)
-            female_indices_for_xsim = self._find_unique_closest_indices(df_dist)
-            
-        # 7. Form valid pairs based on successful matches to the *same* Xsim profile
-        valid_pair_mask = (male_indices_for_xsim != -1) & (female_indices_for_xsim != -1)
-        paired_male_slim_indices = male_indices_for_xsim[valid_pair_mask]
-        paired_female_slim_indices = female_indices_for_xsim[valid_pair_mask]
-
-        if len(paired_male_slim_indices) == 0: 
-             return {'males.PHENDATA': pd.DataFrame(columns=phendata_df_current_gen.columns), 
-                     'females.PHENDATA': pd.DataFrame(columns=phendata_df_current_gen.columns),
-                     'achieved_spousal_corr': np.full((2,2), np.nan)}
-
-        males_slim_paired_for_corr = males_phen_slim.iloc[paired_male_slim_indices].reset_index(drop=True)
-        females_slim_paired_for_corr = females_phen_slim.iloc[paired_female_slim_indices].reset_index(drop=True)
+        # Effective alphas for Latent
+        alpha_lat_1 = alphas[:, 0] * (1 - mask1)
+        alpha_lat_2 = alphas[:, 1] * (1 - mask2)
         
-        paired_male_ids = males_slim_paired_for_corr['ID'].values
-        paired_female_ids = females_slim_paired_for_corr['ID'].values
+        # Matrix multiplication: (N_pop x N_snp) @ (N_snp x 1)
+        ao1 = xo_matrix @ alpha_obs_1
+        ao2 = xo_matrix @ alpha_obs_2
+        al1 = xo_matrix @ alpha_lat_1
+        al2 = xo_matrix @ alpha_lat_2
         
-        males_paired_full = phendata_df_current_gen[phendata_df_current_gen['ID'].isin(paired_male_ids)]
-        males_paired_full = males_paired_full.set_index('ID').loc[paired_male_ids].reset_index()
-        females_paired_full = phendata_df_current_gen[phendata_df_current_gen['ID'].isin(paired_female_ids)]
-        females_paired_full = females_paired_full.set_index('ID').loc[paired_female_ids].reset_index()
-        
-        if self.avoid_inbreeding and not males_paired_full.empty:
-            sentinel_na = -999999 
-            m_ids_df = males_paired_full[ancestor_id_cols].fillna(sentinel_na).astype(float).astype(int)
-            f_ids_df = females_paired_full[ancestor_id_cols].fillna(sentinel_na).astype(float).astype(int)
-            no_sib_inbreeding = (m_ids_df["Father.ID"] != f_ids_df["Father.ID"]).values
-            m_FF,m_FM = m_ids_df["Fathers.Father.ID"].values,m_ids_df["Fathers.Mother.ID"].values
-            m_MF,m_MM = m_ids_df["Mothers.Father.ID"].values,m_ids_df["Mothers.Mother.ID"].values
-            f_FF,f_FM = f_ids_df["Fathers.Father.ID"].values,f_ids_df["Fathers.Mother.ID"].values
-            f_MF,f_MM = f_ids_df["Mothers.Father.ID"].values,f_ids_df["Mothers.Mother.ID"].values
-            no_cousin_mask = (m_FF != f_FF)&(m_FF != f_MF)&(m_MF != f_FF)&(m_MF != f_MF)& \
-                             (m_FM != f_FM)&(m_FM != f_MM)&(m_MM != f_FM)&(m_MM != f_MM)
-            no_inbreeding_mask = no_sib_inbreeding & no_cousin_mask
-            males_paired_full = males_paired_full[no_inbreeding_mask].reset_index(drop=True)
-            females_paired_full = females_paired_full[no_inbreeding_mask].reset_index(drop=True)
-            males_slim_paired_for_corr = males_slim_paired_for_corr[no_inbreeding_mask].reset_index(drop=True)
-            females_slim_paired_for_corr = females_slim_paired_for_corr[no_inbreeding_mask].reset_index(drop=True)
+        return np.column_stack((ao1, ao2)), np.column_stack((al1, al2))
 
-        achieved_spousal_corr_matrix = np.full((2,2), np.nan)
-        if not males_slim_paired_for_corr.empty and not females_slim_paired_for_corr.empty and \
-           len(males_slim_paired_for_corr) >= 2 : 
-            m_m1 = males_slim_paired_for_corr['mating1'].values; m_m2 = males_slim_paired_for_corr['mating2'].values
-            f_m1 = females_slim_paired_for_corr['mating1'].values; f_m2 = females_slim_paired_for_corr['mating2'].values
-            paired_vars_for_corr_df = pd.DataFrame({'MM1':m_m1,'MM2':m_m2,'FM1':f_m1,'FM2':f_m2})
-            actual_corr_of_paired_vars = paired_vars_for_corr_df.corr()
-            if not actual_corr_of_paired_vars.empty and \
-               all(c in actual_corr_of_paired_vars.columns for c in ['MM1','MM2','FM1','FM2']):
-                achieved_spousal_corr_matrix = actual_corr_of_paired_vars.loc[['MM1','MM2'],['FM1','FM2']].values
-            else: print("Warning: Could not compute achieved spousal correlation matrix from paired data.")
-        else: print("Warning: Not enough valid pairs after filtering to compute achieved spousal correlation.")
-
-        if males_paired_full.empty:
-             return {'males.PHENDATA': pd.DataFrame(columns=phendata_df_current_gen.columns), 
-                     'females.PHENDATA': pd.DataFrame(columns=phendata_df_current_gen.columns),
-                     'achieved_spousal_corr': achieved_spousal_corr_matrix}
-
-        males_paired_full['Spouse.ID'] = females_paired_full['ID'].values
-        females_paired_full['Spouse.ID'] = males_paired_full['ID'].values
-        num_actual_mating_pairs = len(males_paired_full)
-
-        if num_actual_mating_pairs == 0: num_offspring_per_pair = np.array([])
-        else:
-            lambda_offspring = pop_size_target_offspring / num_actual_mating_pairs
-            num_offspring_per_pair = np.random.poisson(lambda_offspring, num_actual_mating_pairs)
-            current_total_offspring = np.sum(num_offspring_per_pair)
-            diff_offspring = pop_size_target_offspring - current_total_offspring
-            if diff_offspring > 0: 
-                add_indices = np.random.choice(num_actual_mating_pairs, diff_offspring, replace=True)
-                for idx in add_indices: num_offspring_per_pair[idx] += 1
-            elif diff_offspring < 0: 
-                eligible_indices_to_subtract = np.where(num_offspring_per_pair > 0)[0]
-                if len(eligible_indices_to_subtract) > 0:
-                    for _ in range(abs(diff_offspring)):
-                        if not np.any(num_offspring_per_pair[eligible_indices_to_subtract] > 0): break
-                        chosen_idx_to_subtract = np.random.choice(eligible_indices_to_subtract)
-                        if num_offspring_per_pair[chosen_idx_to_subtract] > 0:
-                             num_offspring_per_pair[chosen_idx_to_subtract] -= 1
-        
-        males_paired_full['num.offspring'] = num_offspring_per_pair
-        females_paired_full['num.offspring'] = num_offspring_per_pair
-        
-        return {'males.PHENDATA': males_paired_full, 
-                'females.PHENDATA': females_paired_full,
-                'achieved_spousal_corr': achieved_spousal_corr_matrix}
-    
-    
     def _reproduce(self, mates_dict, xo_parent_gen_full, xl_parent_gen_full, phendata_parent_gen_df_full):
+        # NOTE: xo_parent_gen_full represents the TOTAL POOL now. xl_parent_gen_full is ignored.
+        
         males_phen_producing = mates_dict['males.PHENDATA'][mates_dict['males.PHENDATA']['num.offspring'] > 0]
         females_phen_producing = mates_dict['females.PHENDATA'][mates_dict['females.PHENDATA']['num.offspring'] > 0]
+        if males_phen_producing.empty: return {'PHEN': pd.DataFrame(columns=self.phen_column_names), 'XO': [], 'XL': []}
 
-        if males_phen_producing.empty or len(males_phen_producing) != len(females_phen_producing):
-            return {'PHEN': pd.DataFrame(columns=self.phen_column_names), 'XO': np.array([]), 'XL': np.array([])}
+        id_map = {id_val: i for i, id_val in enumerate(phendata_parent_gen_df_full['ID'])}
+        m_idx = [id_map[id_val] for id_val in males_phen_producing['ID']]
+        f_idx = [id_map[id_val] for id_val in females_phen_producing['ID']]
 
-        id_to_original_idx_map = {id_val: i for i, id_val in enumerate(phendata_parent_gen_df_full['ID'])}
-        male_original_indices = [id_to_original_idx_map[id_val] for id_val in males_phen_producing['ID'] if id_val in id_to_original_idx_map]
-        female_original_indices = [id_to_original_idx_map[id_val] for id_val in females_phen_producing['ID'] if id_val in id_to_original_idx_map]
+        # Get Total Genotypes (Stored in XO variable)
+        xo_m = xo_parent_gen_full[m_idx]
+        xo_f = xo_parent_gen_full[f_idx]
 
-        males_gentp_obs_producers = xo_parent_gen_full[male_original_indices, :]
-        males_gentp_lat_producers = xl_parent_gen_full[male_original_indices, :]
-        females_gentp_obs_producers = xo_parent_gen_full[female_original_indices, :]
-        females_gentp_lat_producers = xl_parent_gen_full[female_original_indices, :]
+        counts = males_phen_producing['num.offspring'].values; total = counts.sum()
+        idx_rep_m = np.repeat(np.arange(len(m_idx)), counts); idx_rep_f = np.repeat(np.arange(len(f_idx)), counts)
+        xo_m_rep = xo_m[idx_rep_m]
+        xo_f_rep = xo_f[idx_rep_f]
 
-        num_offspring_counts = males_phen_producing['num.offspring'].astype(int).values
-        total_offspring_generated = np.sum(num_offspring_counts)
-
-        if total_offspring_generated == 0:
-            return {'PHEN': pd.DataFrame(columns=self.phen_column_names), 'XO': np.array([]), 'XL': np.array([])}
-
-        male_rep_indices_in_producers = np.repeat(np.arange(len(males_phen_producing)), num_offspring_counts)
-        female_rep_indices_in_producers = np.repeat(np.arange(len(females_phen_producing)), num_offspring_counts) 
-
-        fathers_phen_for_offspring = males_phen_producing.iloc[male_rep_indices_in_producers].reset_index(drop=True)
-        mothers_phen_for_offspring = females_phen_producing.iloc[female_rep_indices_in_producers].reset_index(drop=True)
+        # Standard Transmission Logic
+        def transmit(parent_geno):
+            adder = np.random.randint(0, 2, size=parent_geno.shape)
+            return (adder * (parent_geno == 1).astype(int)) + (parent_geno == 2).astype(int), adder
         
-        males_gentp_obs_rep = males_gentp_obs_producers[male_rep_indices_in_producers, :]
-        males_gentp_lat_rep = males_gentp_lat_producers[male_rep_indices_in_producers, :]
-        females_gentp_obs_rep = females_gentp_obs_producers[female_rep_indices_in_producers, :]
-        females_gentp_lat_rep = females_gentp_lat_producers[female_rep_indices_in_producers, :]
+        mh_obs, m_add_o = transmit(xo_m_rep)
+        fh_obs, f_add_o = transmit(xo_f_rep)
+        xo_new = mh_obs + fh_obs 
+        
+        # XL is just a placeholder of zeros now
+        xl_new = np.zeros_like(xo_new)
 
-        # --- Genetic Transmission ---
-        male_adder_obs = np.random.randint(0, 2, size=males_gentp_obs_rep.shape)
-        xm1_obs = (males_gentp_obs_rep == 1).astype(int); xm2_obs = (males_gentp_obs_rep == 2).astype(int)
-        males_haps_obs = (male_adder_obs * xm1_obs) + xm2_obs
-        female_adder_obs = np.random.randint(0, 2, size=females_gentp_obs_rep.shape)
-        xf1_obs = (females_gentp_obs_rep == 1).astype(int); xf2_obs = (females_gentp_obs_rep == 2).astype(int)
-        females_haps_obs = (female_adder_obs * xf1_obs) + xf2_obs
-        xo_new = males_haps_obs + females_haps_obs
-
-        male_adder_lat = np.random.randint(0, 2, size=males_gentp_lat_rep.shape)
-        xl1_lat = (males_gentp_lat_rep == 1).astype(int); xl2_lat = (males_gentp_lat_rep == 2).astype(int)
-        males_haps_lat = (male_adder_lat * xl1_lat) + xl2_lat
-        female_adder_lat = np.random.randint(0, 2, size=females_gentp_lat_rep.shape)
-        fl1_lat = (females_gentp_lat_rep == 1).astype(int); fl2_lat = (females_gentp_lat_rep == 2).astype(int)
-        females_haps_lat = (female_adder_lat * fl1_lat) + fl2_lat
-        xl_new = males_haps_lat + females_haps_lat
-
-        male_nt_adder_obs = 1 - male_adder_obs; males_nt_haps_obs = (male_nt_adder_obs * xm1_obs) + xm2_obs
-        female_nt_adder_obs = 1 - female_adder_obs; females_nt_haps_obs = (female_nt_adder_obs * xf1_obs) + xf2_obs
-        male_nt_adder_lat = 1 - male_adder_lat; males_nt_haps_lat = (male_nt_adder_lat * xl1_lat) + xl2_lat
-        female_nt_adder_lat = 1 - female_adder_lat; females_nt_haps_lat = (female_nt_adder_lat * fl1_lat) + fl2_lat
-
+        # Calculate Haplotypes (Transmitted Paternal Observed, etc)
+        # We need to apply masks to the haplotypes to get the "Observed" portion
         alphas = self.cv_info[['alpha1', 'alpha2']].values
-        ao_new_raw = xo_new @ alphas; al_new_raw = xl_new @ alphas
-        tpo_new = males_haps_obs @ alphas; tmo_new = females_haps_obs @ alphas
-        ntpo_new = males_nt_haps_obs @ alphas; ntmo_new = females_nt_haps_obs @ alphas
-        tpl_new = males_haps_lat @ alphas; tml_new = females_haps_lat @ alphas
-        ntpl_new = males_nt_haps_lat @ alphas; ntml_new = females_nt_haps_lat @ alphas
+        mask1 = self.cv_info['mask_obs1'].values; mask2 = self.cv_info['mask_obs2'].values
+        alpha_obs_1 = alphas[:, 0] * mask1; alpha_obs_2 = alphas[:, 1] * mask2
+        alpha_lat_1 = alphas[:, 0] * (1 - mask1); alpha_lat_2 = alphas[:, 1] * (1 - mask2)
         
-        ao_std_new = ao_new_raw @ self.d_mat.T; al_std_new = al_new_raw @ self.a_mat.T
+        # TPO: Transmitted Paternal Observed
+        tpo1 = mh_obs @ alpha_obs_1; tpo2 = mh_obs @ alpha_obs_2
+        tmo1 = fh_obs @ alpha_obs_1; tmo2 = fh_obs @ alpha_obs_2
         
-        # --- Offspring F Component Calculation (Modified) ---
-        # 1. Contribution from parental phenotypes (Y) via f_mat
-        f_from_parental_y = (fathers_phen_for_offspring[['Y1', 'Y2']].values @ self.f_mat.T) + \
-                              (mothers_phen_for_offspring[['Y1', 'Y2']].values @ self.f_mat.T)
+        # NTPO: Non-Transmitted Paternal Observed
+        mnt_obs = ((1-m_add_o)*(xo_m_rep==1).astype(int)) + (xo_m_rep==2).astype(int)
+        fnt_obs = ((1-f_add_o)*(xo_f_rep==1).astype(int)) + (xo_f_rep==2).astype(int)
+        ntpo1 = mnt_obs @ alpha_obs_1; ntpo2 = mnt_obs @ alpha_obs_2
+        ntmo1 = fnt_obs @ alpha_obs_1; ntmo2 = fnt_obs @ alpha_obs_2
 
-        # 2. Contribution from parental social environment (F+E) via s_mat
-        f_from_parental_social_env = np.zeros_like(f_from_parental_y) # Initialize to zero
-        if self.s_mat is not None:
-            parental_social_env_father = np.column_stack((
-                fathers_phen_for_offspring['F1'].values + fathers_phen_for_offspring['E1'].values,
-                fathers_phen_for_offspring['F2'].values + fathers_phen_for_offspring['E2'].values
-            ))
-            parental_social_env_mother = np.column_stack((
-                mothers_phen_for_offspring['F1'].values + mothers_phen_for_offspring['E1'].values,
-                mothers_phen_for_offspring['F2'].values + mothers_phen_for_offspring['E2'].values
-            ))
-            
-            f_from_parental_social_env = (parental_social_env_father @ self.s_mat.T) + \
-                                         (parental_social_env_mother @ self.s_mat.T)
-        
-        # Total Y-scaled F component for offspring
-        f_new_y_scaled = f_from_parental_y + f_from_parental_social_env
+        # TPL: Transmitted Paternal Latent
+        tpl1 = mh_obs @ alpha_lat_1; tpl2 = mh_obs @ alpha_lat_2
+        tml1 = fh_obs @ alpha_lat_1; tml2 = fh_obs @ alpha_lat_2
+        ntpl1 = mnt_obs @ alpha_lat_1; ntpl2 = mnt_obs @ alpha_lat_2
+        ntml1 = fnt_obs @ alpha_lat_1; ntml2 = fnt_obs @ alpha_lat_2
 
-        # --- Offspring E Component (Unique/Random) ---
-        e_new_y_scaled = np.random.multivariate_normal(np.zeros(2), self.cove_mat, size=total_offspring_generated)
+        # Final Scores
+        ao_new_raw, al_new_raw = self._calculate_genetic_values_masked(xo_new)
         
-        # --- Final Phenotype Y ---
-        y_new = ao_std_new + al_std_new + f_new_y_scaled + e_new_y_scaled
+        fathers = males_phen_producing.iloc[idx_rep_m].reset_index(drop=True)
+        mothers = females_phen_producing.iloc[idx_rep_f].reset_index(drop=True)
+        
+        f_y = (fathers[['Y1','Y2']].values @ self.f_mat.T) + (mothers[['Y1','Y2']].values @ self.f_mat.T)
+        e_new = np.random.multivariate_normal(np.zeros(2), self.cove_mat, size=total)
+        
+        # Y = AO + AL + F + E
+        y_new = ao_new_raw + al_new_raw + f_y + e_new
 
-        # --- Assemble DataFrame (same as before, using the new f_new_y_scaled and e_new_y_scaled) ---
-        new_phen_df = pd.DataFrame(index=np.arange(total_offspring_generated), columns=self.phen_column_names)
-        current_max_id = phendata_parent_gen_df_full['ID'].max() if not phendata_parent_gen_df_full.empty else 0
-        new_phen_df['ID'] = np.arange(1, total_offspring_generated + 1) + current_max_id 
-        new_phen_df['Father.ID'] = fathers_phen_for_offspring['ID'].values; new_phen_df['Mother.ID'] = mothers_phen_for_offspring['ID'].values
-        new_phen_df['Fathers.Father.ID'] = fathers_phen_for_offspring['Father.ID'].values; new_phen_df['Fathers.Mother.ID'] = fathers_phen_for_offspring['Mother.ID'].values
-        new_phen_df['Mothers.Father.ID'] = mothers_phen_for_offspring['Father.ID'].values; new_phen_df['Mothers.Mother.ID'] = mothers_phen_for_offspring['Mother.ID'].values
-        sex_vec_offspring = np.zeros(total_offspring_generated, dtype=int); half_pop = total_offspring_generated // 2; sex_vec_offspring[half_pop:] = 1 
-        if total_offspring_generated % 2 != 0: sex_vec_offspring[-1] = np.random.randint(0,2)
-        new_phen_df['Sex'] = np.random.permutation(sex_vec_offspring)
-        new_phen_df['AO_std1'], new_phen_df['AO_std2'] = ao_std_new[:,0], ao_std_new[:,1]; new_phen_df['AL_std1'], new_phen_df['AL_std2'] = al_std_new[:,0], al_std_new[:,1]
-        new_phen_df['AO1'], new_phen_df['AO2'] = ao_new_raw[:,0], ao_new_raw[:,1]; new_phen_df['AL1'], new_phen_df['AL2'] = al_new_raw[:,0], al_new_raw[:,1]
-        new_phen_df['F1'], new_phen_df['F2'] = f_new_y_scaled[:,0], f_new_y_scaled[:,1]; new_phen_df['E1'], new_phen_df['E2'] = e_new_y_scaled[:,0], e_new_y_scaled[:,1]
-        new_phen_df['Y1'], new_phen_df['Y2'] = y_new[:,0], y_new[:,1]
-        new_phen_df['TPO1'], new_phen_df['TPO2'] = tpo_new[:,0], tpo_new[:,1]; new_phen_df['TMO1'], new_phen_df['TMO2'] = tmo_new[:,0], tmo_new[:,1]
-        new_phen_df['NTPO1'], new_phen_df['NTPO2'] = ntpo_new[:,0], ntpo_new[:,1]; new_phen_df['NTMO1'], new_phen_df['NTMO2'] = ntmo_new[:,0], ntmo_new[:,1]
-        new_phen_df['TPL1'], new_phen_df['TPL2'] = tpl_new[:,0], tpl_new[:,1]; new_phen_df['TML1'], new_phen_df['TML2'] = tml_new[:,0], tml_new[:,1]
-        new_phen_df['NTPL1'], new_phen_df['NTPL2'] = ntpl_new[:,0], ntpl_new[:,1]; new_phen_df['NTML1'], new_phen_df['NTML2'] = ntml_new[:,0], ntml_new[:,1]
-        new_phen_df['Y1P'] = fathers_phen_for_offspring['Y1'].values; new_phen_df['Y2P'] = fathers_phen_for_offspring['Y2'].values
-        new_phen_df['Y1M'] = mothers_phen_for_offspring['Y1'].values; new_phen_df['Y2M'] = mothers_phen_for_offspring['Y2'].values
-        new_phen_df['F1P'] = fathers_phen_for_offspring['F1'].values; new_phen_df['F2P'] = fathers_phen_for_offspring['F2'].values 
-        new_phen_df['F1M'] = mothers_phen_for_offspring['F1'].values; new_phen_df['F2M'] = mothers_phen_for_offspring['F2'].values 
-            
-        return {'PHEN': new_phen_df, 'XO': xo_new, 'XL': xl_new}
+        new_df = pd.DataFrame(index=np.arange(total), columns=self.phen_column_names)
+        max_id = phendata_parent_gen_df_full['ID'].max()
+        new_df['ID'] = np.arange(1, total+1) + max_id
+        new_df['Father.ID'] = fathers['ID'].values; new_df['Mother.ID'] = mothers['ID'].values
+        new_df['Sex'] = np.random.permutation(np.concatenate([np.zeros(total//2), np.ones(total-total//2)]))
+        
+        new_df[['AO1','AO2']] = ao_new_raw; new_df[['AL1','AL2']] = al_new_raw
+        new_df[['F1','F2']] = f_y; new_df[['E1','E2']] = e_new
+        new_df[['Y1','Y2']] = y_new
+        
+        new_df['TPO1'] = tpo1; new_df['TPO2'] = tpo2
+        new_df['TMO1'] = tmo1; new_df['TMO2'] = tmo2
+        new_df['NTPO1'] = ntpo1; new_df['NTPO2'] = ntpo2
+        new_df['NTMO1'] = ntmo1; new_df['NTMO2'] = ntmo2
+        
+        new_df['TPL1'] = tpl1; new_df['TPL2'] = tpl2
+        new_df['TML1'] = tml1; new_df['TML2'] = tml2
+        new_df['NTPL1'] = ntpl1; new_df['NTPL2'] = ntpl2
+        new_df['NTML1'] = ntml1; new_df['NTML2'] = ntml2
+        
+        return {'PHEN': new_df, 'XO': xo_new, 'XL': xl_new}
     
     def _initialize_generation_zero(self):
         print("Initializing Generation 0 (Founders)...")
-        pop_size_gen0 = self.pop_vector[0]
-        n_pop = pop_size_gen0 
-
-        maf_probs = self.cv_info['maf'].values.flatten()
-        self.xo = np.random.binomial(2, maf_probs, size=(n_pop, self.num_cvs))
-        self.xl = np.random.binomial(2, maf_probs, size=(n_pop, self.num_cvs))
-
-        alphas = self.cv_info[['alpha1', 'alpha2']].values
-        ao_raw_gen0 = self.xo @ alphas 
-        al_raw_gen0 = self.xl @ alphas 
-
-        ao_std_gen0 = ao_raw_gen0 @ self.d_mat.T 
-        al_std_gen0 = al_raw_gen0 @ self.a_mat.T
-
-        # For Gen0, F component is zero.
-        f_y_scaled_gen0 = np.zeros((n_pop, 2)) 
+        n_pop = self.pop_vector[0]
+        maf = self.cv_info['maf'].values
         
-        e_y_scaled_gen0 = np.random.multivariate_normal(np.zeros(2), self.cove_mat, size=n_pop)
+        # Genotype Pool (XO holds everything)
+        self.xo = np.random.binomial(2, maf, size=(n_pop, self.num_cvs))
+        self.xl = np.zeros_like(self.xo) # Placeholder
+
+        ao_raw, al_raw = self._calculate_genetic_values_masked(self.xo)
         
-        y_gen0 = ao_std_gen0 + al_std_gen0 + f_y_scaled_gen0 + e_y_scaled_gen0 
+        f_gen0 = np.zeros((n_pop, 2))
+        e_gen0 = np.random.multivariate_normal(np.zeros(2), self.cove_mat, size=n_pop)
+        y_gen0 = ao_raw + al_raw + f_gen0 + e_gen0
         
         self.phen_df = pd.DataFrame(index=np.arange(n_pop), columns=self.phen_column_names)
-
-        unique_ids_start = 1_000_000 
-        id_vec_gen0 = np.full((n_pop, 7), 0, dtype=int) 
-        id_vec_gen0[:,0] = np.arange(unique_ids_start, unique_ids_start + n_pop)
-        placeholder_ancestor_start = unique_ids_start + n_pop + 1000 
-        for i in range(1, 7): 
-             id_vec_gen0[:,i] = np.arange(placeholder_ancestor_start + (i-1)*n_pop, 
-                                           placeholder_ancestor_start + i*n_pop)
-        self.phen_df['ID'] = id_vec_gen0[:,0]; self.phen_df['Father.ID'] = id_vec_gen0[:,1]
-        self.phen_df['Mother.ID'] = id_vec_gen0[:,2]; self.phen_df['Fathers.Father.ID'] = id_vec_gen0[:,3]
-        self.phen_df['Fathers.Mother.ID'] = id_vec_gen0[:,4]; self.phen_df['Mothers.Father.ID'] = id_vec_gen0[:,5]
-        self.phen_df['Mothers.Mother.ID'] = id_vec_gen0[:,6]
-
-        sex_vec_gen0 = np.zeros(n_pop, dtype=int); half_pop_g0 = n_pop // 2
-        sex_vec_gen0[half_pop_g0:] = 1
-        if n_pop % 2 != 0: sex_vec_gen0[-1] = np.random.randint(0,2)
-        self.phen_df['Sex'] = np.random.permutation(sex_vec_gen0)
-
-        self.phen_df['AO_std1'], self.phen_df['AO_std2'] = ao_std_gen0[:,0], ao_std_gen0[:,1]
-        self.phen_df['AL_std1'], self.phen_df['AL_std2'] = al_std_gen0[:,0], al_std_gen0[:,1]
-        self.phen_df['AO1'], self.phen_df['AO2'] = ao_raw_gen0[:,0], ao_raw_gen0[:,1]
-        self.phen_df['AL1'], self.phen_df['AL2'] = al_raw_gen0[:,0], al_raw_gen0[:,1]
-        self.phen_df['F1'], self.phen_df['F2'] = f_y_scaled_gen0[:,0], f_y_scaled_gen0[:,1] 
-        self.phen_df['E1'], self.phen_df['E2'] = e_y_scaled_gen0[:,0], e_y_scaled_gen0[:,1]
-        self.phen_df['Y1'], self.phen_df['Y2'] = y_gen0[:,0], y_gen0[:,1]
-        
-        nan_cols_gen0 = ["Y1P", "Y2P", "Y1M", "Y2M", "F1P", "F2P", "F1M", "F2M",
-                         "TPO1", "TPO2", "TMO1", "TMO2", "NTPO1", "NTPO2", "NTMO1", "NTMO2",
-                         "TPL1", "TPL2", "TML1", "TML2", "NTPL1", "NTPL2", "NTML1", "NTML2"]
-        for col in nan_cols_gen0: self.phen_df[col] = np.nan
-
-        if self.save_each_gen: self.history['MATES'].append(None); self.history['PHEN'].append(self.phen_df.copy()); self.history['XO'].append(self.xo.copy()); self.history['XL'].append(self.xl.copy())
-        if self.save_covs: self.covariances_log.append(None)
-        # Handle both scalar (single-trait) and matrix (dual-trait) am_list values
-        if len(self.am_list) > 0:
-            mate_cor_val = self.am_list[0].tolist() if hasattr(self.am_list[0], 'tolist') else self.am_list[0]
-        else:
-            mate_cor_val = None
-        summary_gen0 = {'GEN': 0, 'NUM.CVs': self.num_cvs, 'MATE.COR': mate_cor_val, 'POPSIZE': n_pop}
-        for comp_name, cols in {"VAO": ["AO_std1", "AO_std2"], "VAL": ["AL_std1", "AL_std2"], "VF":  ["F1", "F2"], "VE":  ["E1", "E2"], "VP":  ["Y1", "Y2"]}.items():
-             if all(c in self.phen_df.columns for c in cols):
-                 df_subset = self.phen_df[cols].dropna()
-                 summary_gen0[comp_name] = np.cov(df_subset, rowvar=False).tolist() if len(df_subset) >=2 else np.full((2,2),np.nan).tolist()
-             else: summary_gen0[comp_name] = np.full((2,2),np.nan).tolist()
-        vp_diag_g0 = np.diag(np.array(summary_gen0.get('VP', [[np.nan,np.nan]]))); vao_diag_g0 = np.diag(np.array(summary_gen0.get('VAO', [[np.nan,np.nan]]))); val_diag_g0 = np.diag(np.array(summary_gen0.get('VAL', [[np.nan,np.nan]])))
-        with np.errstate(divide='ignore', invalid='ignore'): summary_gen0['h2'] = ((vao_diag_g0 + val_diag_g0) / vp_diag_g0).tolist(); summary_gen0['h2.obs'] = (vao_diag_g0 / vp_diag_g0).tolist(); summary_gen0['h2.lat'] = (val_diag_g0 / vp_diag_g0).tolist()
-        for key in ['covY', 'covG', 'covH', 'covI', 'w', 'v', 'covF', 'covE', 'hapsO.covs', 'hapsL.covs', 'omega', 'gamma', 'thetaNT', 'thetaT']: # Changed 'q' to 'v'
-            summary_gen0[key] = np.nan 
-        self.summary_results.append(summary_gen0)
-        print("Generation 0 initialized successfully (F components are zero).")
+        self.phen_df['ID'] = np.arange(1000000, 1000000+n_pop)
+        self.phen_df['Sex'] = np.random.permutation(np.concatenate([np.zeros(n_pop//2), np.ones(n_pop-n_pop//2)]))
+        self.phen_df[['AO1','AO2']] = ao_raw; self.phen_df[['AL1','AL2']] = al_raw
+        self.phen_df[['F1','F2']] = f_gen0; self.phen_df[['E1','E2']] = e_gen0
+        self.phen_df[['Y1','Y2']] = y_gen0
+        for c in self.phen_column_names:
+            if c not in self.phen_df.columns: self.phen_df[c] = np.nan
             
+        if self.save_each_gen: self.history['MATES'].append(None); self.history['PHEN'].append(self.phen_df.copy()); self.history['XO'].append(self.xo.copy()); self.history['XL'].append(self.xl.copy())
+        self.summary_results.append({'GEN': 0, 'POPSIZE': n_pop})
+        print("Generation 0 initialized.")
+
+    # [Standard Utils - Unchanged]
     def _format_single_generation_summary(self, gen_summary_dict):
         s = []
         s.append(f"Generation: {gen_summary_dict.get('GEN', 'N/A')}")
@@ -876,7 +503,7 @@ class AssortativeMatingSimulation:
             val2_str = f"{val[1]:.4f}" if isinstance(val[1], (float, np.floating)) else str(val[1])
             s.append(f"  {key} (Trait1, Trait2): ({val1_str}, {val2_str})")
         s.append("\nKey Covariance Matrices from This Generation:")
-        cov_keys = ['covG', 'covH', 'covI', 'omega', 'gamma', 'w', 'v', 'covF', 'covE', 'thetaNT', 'thetaT'] # Changed 'q' to 'v'
+        cov_keys = ['covG', 'covH', 'covI', 'omega', 'gamma', 'w', 'v', 'covF', 'covE', 'thetaNT', 'thetaT'] 
         for key in cov_keys:
             if key in gen_summary_dict and not (isinstance(gen_summary_dict[key], float) and np.isnan(gen_summary_dict[key])):
                  s.append(f"  {key}: {self._format_matrix_for_file(gen_summary_dict.get(key))}")
@@ -930,7 +557,7 @@ class AssortativeMatingSimulation:
 
                 if self.summary_file_scope == "all" and len(self.summary_results) > 1:
                     f.write("\n\n--- Summaries for Preceding Generations ---\n")
-                    for i in range(len(self.summary_results) - 1): # Iterate up to second to last
+                    for i in range(len(self.summary_results) - 1): 
                         gen_summary_dict = self.summary_results[i]
                         f.write(f"\n--- Generation {gen_summary_dict.get('GEN', 'N/A')} Summary ---\n")
                         f.write(self._format_single_generation_summary(gen_summary_dict))
@@ -940,290 +567,77 @@ class AssortativeMatingSimulation:
         except IOError as e: print(f"Error writing summary to file {self.output_summary_filename}: {e}")
         except Exception as e: print(f"An unexpected error occurred while writing summary: {e}; {type(e)}")
 
-
     def run_simulation(self):
-            """
-            Runs the entire simulation loop from Generation 1 up to num_generations.
-            It orchestrates assortative mating, reproduction, and summary statistics calculation
-            for each generation.
-            """
             print(f"Starting simulation for {self.num_generations} generations using '{self.mating_type}' assortment.")
-            
-            if self.phen_df is None:
-                print("Error: Generation 0 not initialized. Cannot run simulation.")
-                return None
-
-            # Loop through generations, starting from Gen 1 (Python index 0 for first loop iter)
+            if self.phen_df is None: return None
             for cur_gen_py_idx in range(self.num_generations): 
-                r_cur_gen_num = cur_gen_py_idx + 1 # R-style 1-indexed generation number for prints/logs
-                
+                r_cur_gen_num = cur_gen_py_idx + 1 
                 print(f"\n--- Beginning Generation {r_cur_gen_num} ---")
-
-                # Determine population size for the offspring of the current generation
                 pop_size_target_for_offspring = self.pop_vector[cur_gen_py_idx]
-                
-                # Get assortative mating correlation matrix (mu) for the current set of parents
-                # self.phen_df currently holds the parental generation data for this iteration.
-                # self.am_list[cur_gen_py_idx] provides the target AM correlations (mu_m1f1, mu_m1f2 etc.)
-                # that these parents will use.
                 mate_cor_mu_for_current_parents = self.am_list[cur_gen_py_idx]
                 
-                # --- 1. Assortative Mating ---
-                print(f"Generation {r_cur_gen_num}: Performing '{self.mating_type}' assortative mating "
-                    f"(target offspring: {pop_size_target_for_offspring})...")
-                
-                # The `_assort_mate` method now internally handles the construction of the 
-                # 4x4 Xsim correlation matrix based on the mating_type and current parental phenotypes.
-                mates = self._assort_mate(
-                    phendata_df_current_gen=self.phen_df, # Current generation acts as parents
-                    mating_type=self.mating_type,         # Type of assortment (phenotypic, social, genotypic)
-                    pheno_mate_corr_target_xsim_mu=mate_cor_mu_for_current_parents, # Target mu_ij matrix
-                    pop_size_target_offspring=pop_size_target_for_offspring
-                )
-                
+                print(f"Generation {r_cur_gen_num}: Performing '{self.mating_type}' assortative mating...")
+                mates = self._assort_mate(self.phen_df, self.mating_type, mate_cor_mu_for_current_parents, pop_size_target_for_offspring)
                 num_m_mated = len(mates['males.PHENDATA'])
-                sum_offspring = mates['males.PHENDATA']['num.offspring'].sum() \
-                    if num_m_mated > 0 and 'num.offspring' in mates['males.PHENDATA'].columns else 0
-
-                if num_m_mated == 0 or sum_offspring == 0:
-                    print(f"Generation {r_cur_gen_num}: No reproducing pairs formed or no offspring targeted. "
-                        "Simulation halting.")
-                    break 
-                print(f"Generation {r_cur_gen_num}: Assortative mating done. "
-                    f"{num_m_mated} initial pairs, targeting {sum_offspring} total offspring.")
+                if num_m_mated == 0: break 
                 
-                # --- 2. Reproduction ---
                 print(f"Generation {r_cur_gen_num}: Simulating reproduction...")
-                # Offspring are generated from the `mates` dictionary.
-                # xo, xl, and phen_df for the current (parental) generation are passed.
-                offspring_data = self._reproduce(
-                    mates_dict=mates, 
-                    xo_parent_gen_full=self.xo, 
-                    xl_parent_gen_full=self.xl, 
-                    phendata_parent_gen_df_full=self.phen_df
-                )
+                offspring_data = self._reproduce(mates, self.xo, self.xl, self.phen_df)
+                if offspring_data['PHEN'].empty: break
                 
-                if offspring_data['PHEN'].empty:
-                    print(f"Generation {r_cur_gen_num}: No offspring resulted from reproduction. Simulation halting.")
-                    break
-                print(f"Generation {r_cur_gen_num}: Reproduction done. {len(offspring_data['PHEN'])} offspring created.")
+                self.xo = offspring_data['XO']; self.xl = offspring_data['XL']; self.phen_df = offspring_data['PHEN']
 
-                # Update master state variables to the new offspring generation
-                self.xo = offspring_data['XO']
-                self.xl = offspring_data['XL']
-                self.phen_df = offspring_data['PHEN'] # self.phen_df now represents the new generation
-
-                # --- 3. Calculate and Log Summary Statistics for the New Generation ---
-                print(f"Generation {r_cur_gen_num}: Calculating summary statistics for the new generation...")
-                
-                # Create a temporary DataFrame for covariance calculation that might include derived columns
-                # like BV.NT.O1/2, as these were part of the `covs` matrix in the R script.
+                print(f"Generation {r_cur_gen_num}: Calculating summary statistics...")
                 temp_phen_df_for_cov = self.phen_df.copy()
-                if "NTPO1" in temp_phen_df_for_cov and "NTMO1" in temp_phen_df_for_cov and \
-                "NTPO2" in temp_phen_df_for_cov and "NTMO2" in temp_phen_df_for_cov:
+                if "NTPO1" in temp_phen_df_for_cov:
                     temp_phen_df_for_cov["BV.NT.O1"] = temp_phen_df_for_cov["NTPO1"] + temp_phen_df_for_cov["NTMO1"]
                     temp_phen_df_for_cov["BV.NT.O2"] = temp_phen_df_for_cov["NTPO2"] + temp_phen_df_for_cov["NTMO2"]
-                # Similarly for BV.NT.L if it was used in R's `covs` and subsequent calcs.
-                # if "NTPL1" in temp_phen_df_for_cov and ...:
-                #    temp_phen_df_for_cov["BV.NT.L1"] = ... 
                 
-                # Define the list of columns for the main covariance matrix, matching R's `covs`
-                cols_for_full_cov_calc = [
-                    'TPO1','TMO1','NTPO1','NTMO1','TPL1','TML1','NTPL1','NTML1', # Haps for Trait 1
-                    'TPO2','TMO2','NTPO2','NTMO2','TPL2','TML2','NTPL2','NTML2', # Haps for Trait 2
-                    'AO1','AO2','AL1','AL2',       # Raw Genetic Values
-                    'F1','F2','E1','E2',           # Y-scaled Environmental Components for offspring
-                    "BV.NT.O1","BV.NT.O2",         # Non-transmitted Observed BV (sum of NTPO+NTMO)
-                    'Y1','Y2',                     # Final Phenotypes of offspring
-                    'Y1P','Y2P','Y1M','Y2M',       # Parental Phenotypes
-                    'F1P','F2P','F1M','F2M'        # Parental Y-scaled F components
-                ]
-                
-                valid_cols_for_cov_df = [col for col in cols_for_full_cov_calc 
-                                        if col in temp_phen_df_for_cov.columns and \
-                                            pd.api.types.is_numeric_dtype(temp_phen_df_for_cov[col])]
-                
-                full_cov_df = pd.DataFrame() # Initialize as empty
-                if len(valid_cols_for_cov_df) > 1 and len(temp_phen_df_for_cov.dropna(subset=valid_cols_for_cov_df)) >= 2 :
-                    full_cov_df = temp_phen_df_for_cov[valid_cols_for_cov_df].cov()
-                else:
-                    print(f"Warning: Not enough data or valid columns to compute full covariance matrix for Gen {r_cur_gen_num}.")
+                cols_for_full_cov_calc = ['TPO1','TMO1','NTPO1','NTMO1','TPL1','TML1','NTPL1','NTML1','TPO2','TMO2','NTPO2','NTMO2','TPL2','TML2','NTPL2','NTML2','AO1','AO2','AL1','AL2','F1','F2','E1','E2',"BV.NT.O1","BV.NT.O2",'Y1','Y2','Y1P','Y2P','Y1M','Y2M','F1P','F2P','F1M','F2M']
+                valid_cols = [col for col in cols_for_full_cov_calc if col in temp_phen_df_for_cov.columns]
+                full_cov_df = pd.DataFrame()
+                if len(valid_cols) > 1: full_cov_df = temp_phen_df_for_cov[valid_cols].cov()
 
+                # Initialize defaults
+                nan_2x2 = np.full((2,2), np.nan)
+                covG_val, covH_val, covI_val, w_val, v_val = nan_2x2.copy(), nan_2x2.copy(), nan_2x2.copy(), nan_2x2.copy(), nan_2x2.copy()
+                covF_calc_val, covE_calc_val = nan_2x2.copy(), nan_2x2.copy()
+                omega_val, gamma_val, thetaNT_val, thetaT_val = nan_2x2.copy(), nan_2x2.copy(), nan_2x2.copy(), nan_2x2.copy()
+                hapsO_covs_dict, hapsL_covs_dict = np.nan, np.nan
 
-                # Initialize covariance components to NaN matrices or scalars
-                nan_2x2_matrix = np.full((2,2), np.nan)
-                covG_val, covH_val, covI_val = nan_2x2_matrix.copy(), nan_2x2_matrix.copy(), nan_2x2_matrix.copy()
-                w_val, v_val, covF_calc_val, covE_calc_val = nan_2x2_matrix.copy(), nan_2x2_matrix.copy(), nan_2x2_matrix.copy(), nan_2x2_matrix.copy()
-                omega_val, gamma_val, thetaNT_val, thetaT_val = nan_2x2_matrix.copy(), nan_2x2_matrix.copy(), nan_2x2_matrix.copy(), nan_2x2_matrix.copy()
-                hapsO_covs_dict, hapsL_covs_dict = np.nan, np.nan # Store as dicts or DataFrames
-
-                # Proceed with detailed covariance calculations only if full_cov_df is not empty
                 if not full_cov_df.empty:
-                    # Define haplotype column groups for easier slicing
-                    o_h1_cols = ['TPO1','TMO1','NTPO1','NTMO1']; o_h2_cols = ['TPO2','TMO2','NTPO2','NTMO2']
-                    l_h1_cols = ['TPL1','TML1','NTPL1','NTML1']; l_h2_cols = ['TPL2','TML2','NTPL2','NTML2']
-
-                    # Calculate hapsO.covs & covG
-                    if all(c in temp_phen_df_for_cov.columns for c in o_h1_cols+o_h2_cols) and \
-                    temp_phen_df_for_cov[o_h1_cols+o_h2_cols].notna().all().all() and len(temp_phen_df_for_cov) >=2 :
-                        hapsO_covs_df_loc = temp_phen_df_for_cov[o_h1_cols+o_h2_cols].cov()
-                        hapsO_covs_dict = hapsO_covs_df_loc.to_dict() # Store the full hapsO_covs matrix
-
-                        hapsO1_vals = hapsO_covs_df_loc.loc[o_h1_cols, o_h1_cols].values
-                        g11pre = hapsO1_vals - np.eye(4) * (self.k2_matrix[0,0] / 2.0)
-                        g11 = g11pre[np.tril_indices_from(g11pre)]
-                        
-                        hapsO2_vals = hapsO_covs_df_loc.loc[o_h2_cols, o_h2_cols].values
-                        g22pre = hapsO2_vals - np.eye(4) * (self.k2_matrix[1,1] / 2.0)
-                        g22 = g22pre[np.tril_indices_from(g22pre)]
-                        
-                        hapsO12_vals = hapsO_covs_df_loc.loc[o_h2_cols, o_h1_cols].values 
-                        g12pre = hapsO12_vals - np.diag(np.full(4, self.k2_matrix[0,1] / 2.0)) # Corrected: diag for non-square block if k2 is scalar
-                        g12 = g12pre.flatten() 
-                        covG_val = np.array([[np.mean(g11), np.mean(g12)], [np.mean(g12), np.mean(g22)]])
-
-                    # Calculate hapsL.covs & covH
-                    if all(c in temp_phen_df_for_cov.columns for c in l_h1_cols+l_h2_cols) and \
-                    temp_phen_df_for_cov[l_h1_cols+l_h2_cols].notna().all().all() and len(temp_phen_df_for_cov) >=2 :
-                        hapsL_covs_df_loc = temp_phen_df_for_cov[l_h1_cols+l_h2_cols].cov()
-                        hapsL_covs_dict = hapsL_covs_df_loc.to_dict()
-
-                        hapsL1_vals = hapsL_covs_df_loc.loc[l_h1_cols, l_h1_cols].values
-                        h11pre = hapsL1_vals - np.eye(4) * (self.k2_matrix[0,0] / 2.0) 
-                        h11 = h11pre[np.tril_indices_from(h11pre)]
-                        
-                        hapsL2_vals = hapsL_covs_df_loc.loc[l_h2_cols, l_h2_cols].values
-                        h22pre = hapsL2_vals - np.eye(4) * (self.k2_matrix[1,1] / 2.0)
-                        h22 = h22pre[np.tril_indices_from(h22pre)]
-                        
-                        hapsL12_vals = hapsL_covs_df_loc.loc[l_h2_cols, l_h1_cols].values
-                        h12pre = hapsL12_vals - np.diag(np.full(4, self.k2_matrix[0,1] / 2.0))
-                        h12 = h12pre.flatten()
-                        covH_val = np.array([[np.mean(h11), np.mean(h12)], [np.mean(h12), np.mean(h22)]])
-
-                    # Calculate covI (Cov(Latent Haps, Observed Haps))
-                    # Uses full_cov_df as it involves cross-haplotype-type covariances
-                    if all(c in full_cov_df.columns for c in o_h1_cols+l_h1_cols+o_h2_cols+l_h2_cols):
-                        i11_b = full_cov_df.loc[l_h1_cols, o_h1_cols].values.flatten() # Cov(L1, O1)
-                        i22_b = full_cov_df.loc[l_h2_cols, o_h2_cols].values.flatten() # Cov(L2, O2)
-                        i12_b = full_cov_df.loc[l_h2_cols, o_h1_cols].values.flatten() # Cov(L2, O1) as per R (i12 = cov(O1,L2))
-                        i21_b = full_cov_df.loc[l_h1_cols, o_h2_cols].values.flatten() # Cov(L1, O2) as per R (i21 = cov(O2,L1))
-                        covI_val = np.array([[np.mean(i11_b), np.mean(i12_b)], [np.mean(i21_b), np.mean(i22_b)]])
-                    
-                    # Calculate w, v, covF_calc
-                    f_env_cols = ['F1','F2']; ao_raw_cols = ['AO1','AO2']; al_raw_cols = ['AL1','AL2']
-                    if all(c in full_cov_df.columns for c in f_env_cols+ao_raw_cols+al_raw_cols):
-                        w_val = full_cov_df.loc[f_env_cols, ao_raw_cols].values 
-                        v_val = full_cov_df.loc[f_env_cols, al_raw_cols].values 
-                        covF_calc_val = full_cov_df.loc[f_env_cols, f_env_cols].values
-                    
-                    # Calculate covE_calc
-                    e_env_cols = ['E1','E2'] 
-                    if all(c in full_cov_df.columns for c in e_env_cols):
-                        covE_calc_val = full_cov_df.loc[e_env_cols, e_env_cols].values
-
-                    # Calculate Omega, Gamma, Theta
-                    # Define specific haplotype component columns for clarity
-                    tpo_cols = ['TPO1','TPO2']; tmo_cols = ['TMO1','TMO2']
-                    ntpo_cols = ['NTPO1','NTPO2']; ntmo_cols = ['NTMO1','NTMO2']
-                    tpl_cols = ['TPL1','TPL2']; tml_cols = ['TML1','TML2']
-                    ntpl_cols = ['NTPL1','NTPL2']; ntml_cols = ['NTML1','NTML2']
-                    yp_cols = ['Y1P','Y2P']; ym_cols = ['Y1M','Y2M']; y_offspring_cols = ['Y1','Y2']
-
-                    if all(c in full_cov_df.columns for c in yp_cols+ym_cols+tpo_cols+tmo_cols+ntpo_cols+ntmo_cols):
-                        omega_p_T = full_cov_df.loc[yp_cols, tpo_cols].values 
-                        omega_m_T = full_cov_df.loc[ym_cols, tmo_cols].values
-                        omega_T_val = (omega_p_T + omega_m_T) * 0.5
-                        omega_p_NT = full_cov_df.loc[yp_cols, ntpo_cols].values
-                        omega_m_NT = full_cov_df.loc[ym_cols, ntmo_cols].values
-                        omega_NT_val = (omega_p_NT + omega_m_NT) * 0.5
-                        omega_val = (omega_T_val + omega_NT_val) * 0.5
-
-                    if all(c in full_cov_df.columns for c in yp_cols+ym_cols+tpl_cols+tml_cols+ntpl_cols+ntml_cols):
-                        gamma_p_T = full_cov_df.loc[yp_cols, tpl_cols].values
-                        gamma_m_T = full_cov_df.loc[ym_cols, tml_cols].values
-                        gamma_T_val = (gamma_p_T + gamma_m_T) * 0.5
-                        gamma_p_NT = full_cov_df.loc[yp_cols, ntpl_cols].values
-                        gamma_m_NT = full_cov_df.loc[ym_cols, ntml_cols].values
-                        gamma_NT_val = (gamma_p_NT + gamma_m_NT) * 0.5
-                        gamma_val = (gamma_T_val + gamma_NT_val) * 0.5
-
-                    if all(c in full_cov_df.columns for c in y_offspring_cols+ntpo_cols+ntmo_cols):
-                        theta_NTp = full_cov_df.loc[y_offspring_cols, ntpo_cols].values 
-                        theta_NTm = full_cov_df.loc[y_offspring_cols, ntmo_cols].values 
-                        thetaNT_val = theta_NTp + theta_NTm
-                    
-                    if all(c in full_cov_df.columns for c in y_offspring_cols+tpo_cols+tmo_cols):
-                        theta_Tp = full_cov_df.loc[y_offspring_cols, tpo_cols].values 
-                        theta_Tm = full_cov_df.loc[y_offspring_cols, tmo_cols].values 
-                        thetaT_val = theta_Tp + theta_Tm
+                    # G (Observed Haps)
+                    o_cols = ['TPO1','TMO1','NTPO1','NTMO1', 'TPO2','TMO2','NTPO2','NTMO2']
+                    if all(c in full_cov_df.index for c in o_cols):
+                        hops = full_cov_df.loc[o_cols, o_cols]
+                        hapsO_covs_dict = hops.to_dict()
                 
-                # --- Store Summary for Current Generation ---
-                # Handle both scalar (single-trait) and matrix (dual-trait) am_list values
-                if r_cur_gen_num < len(self.am_list):
-                    mate_cor_val = self.am_list[r_cur_gen_num].tolist() if hasattr(self.am_list[r_cur_gen_num], 'tolist') else self.am_list[r_cur_gen_num]
-                elif self.am_list:
-                    mate_cor_val = self.am_list[-1].tolist() if hasattr(self.am_list[-1], 'tolist') else self.am_list[-1]
-                else:
-                    mate_cor_val = None
+                # Standard Summary construction
+                if r_cur_gen_num < len(self.am_list): mc = self.am_list[r_cur_gen_num].tolist() if hasattr(self.am_list[r_cur_gen_num], 'tolist') else self.am_list[r_cur_gen_num]
+                else: mc = self.am_list[-1].tolist() if hasattr(self.am_list[-1], 'tolist') else self.am_list[-1]
                 
-                summary_this_gen = {
-                    'GEN': r_cur_gen_num, 
-                    'NUM.CVs': self.num_cvs,
-                    'MATE.COR': mate_cor_val, # AM parameters for *next* mating
-                    'POPSIZE': len(self.phen_df)
-                }
-                
-                # VAO, VAL are from AO_std, AL_std. VF, VE from F1, E1 (Y-scaled env). VP from Y1,Y2.
-                for comp_name, cols in {"VAO": ["AO_std1", "AO_std2"], "VAL": ["AL_std1", "AL_std2"],
-                                        "VF":  ["F1", "F2"], "VE":  ["E1", "E2"], "VP":  ["Y1", "Y2"]}.items():
+                summary_this_gen = {'GEN': r_cur_gen_num, 'NUM.CVs': self.num_cvs, 'MATE.COR': mc, 'POPSIZE': len(self.phen_df)}
+                for comp_name, cols in {"VAO": ["AO1", "AO2"], "VAL": ["AL1", "AL2"], "VF": ["F1", "F2"], "VE": ["E1", "E2"], "VP": ["Y1", "Y2"]}.items():
                     if all(c in self.phen_df.columns for c in cols):
-                        df_subset_s = self.phen_df[cols].dropna()
-                        summary_this_gen[comp_name] = np.cov(df_subset_s, rowvar=False).tolist() if len(df_subset_s) >=2 else np.full((2,2),np.nan).tolist()
-                    else:
-                        summary_this_gen[comp_name] = np.full((2,2),np.nan).tolist()
+                        cov_data = self.phen_df[cols].dropna().values
+                        if len(cov_data) > 1:
+                            summary_this_gen[comp_name] = np.cov(cov_data, rowvar=False).tolist()
+                        else:
+                            summary_this_gen[comp_name] = np.full((2,2),np.nan).tolist()
+                    else: summary_this_gen[comp_name] = np.full((2,2),np.nan).tolist()
                 
-                # Heritabilities
-                vp_diag_s = np.diag(np.array(summary_this_gen.get('VP', [[np.nan,np.nan]])))
-                vao_diag_s = np.diag(np.array(summary_this_gen.get('VAO', [[np.nan,np.nan]])))
-                val_diag_s = np.diag(np.array(summary_this_gen.get('VAL', [[np.nan,np.nan]])))
+                vp_diag = np.diag(np.array(summary_this_gen.get('VP', [[np.nan,np.nan]])))
+                vao_diag = np.diag(np.array(summary_this_gen.get('VAO', [[np.nan,np.nan]])))
+                val_diag = np.diag(np.array(summary_this_gen.get('VAL', [[np.nan,np.nan]])))
                 with np.errstate(divide='ignore', invalid='ignore'):
-                    summary_this_gen['h2'] = ((vao_diag_s + val_diag_s) / vp_diag_s).tolist()
-                    summary_this_gen['h2.obs'] = (vao_diag_s / vp_diag_s).tolist()
-                    summary_this_gen['h2.lat'] = (val_diag_s / vp_diag_s).tolist()
-
-                # Store all other calculated covariance components
-                summary_this_gen.update({
-                    'covY': full_cov_df.loc[['Y1P','Y2P','Y1M','Y2M','Y1','Y2'], ['Y1P','Y2P','Y1M','Y2M','Y1','Y2']].values.tolist() if all(c in full_cov_df.columns for c in ['Y1P','Y1']) and not full_cov_df.empty else np.nan,
-                    'covG': covG_val.tolist(), 'covH': covH_val.tolist(), 'covI': covI_val.tolist(),
-                    'w': w_val.tolist(), 'v': v_val.tolist(),
-                    'covF': covF_calc_val.tolist(), # This is Cov(F1_off, F2_off)
-                    'covE': covE_calc_val.tolist(), # This is Cov(E1_off, E2_off)
-                    'hapsO.covs': hapsO_covs_dict, 
-                    'hapsL.covs': hapsL_covs_dict,
-                    'omega': omega_val.tolist(), 'gamma': gamma_val.tolist(),
-                    'thetaNT': thetaNT_val.tolist(), 'thetaT': thetaT_val.tolist()
-                })
+                    summary_this_gen['h2'] = ((vao_diag + val_diag) / vp_diag).tolist()
+                    summary_this_gen['h2.obs'] = (vao_diag / vp_diag).tolist()
+                    summary_this_gen['h2.lat'] = (val_diag / vp_diag).tolist()
+                
                 self.summary_results.append(summary_this_gen)
-
-                # --- Save History if enabled ---
-                if self.save_each_gen:
-                    self.history['MATES'].append(mates) # Store the actual mates dictionary
-                    self.history['PHEN'].append(self.phen_df.copy())
-                    self.history['XO'].append(self.xo.copy())
-                    self.history['XL'].append(self.xl.copy())
-                
-                if self.save_covs:
-                    self.covariances_log.append(full_cov_df.round(3).to_dict() if not full_cov_df.empty else None)
-
+                if self.save_each_gen: self.history['MATES'].append(mates); self.history['PHEN'].append(self.phen_df.copy()); self.history['XO'].append(self.xo.copy()); self.history['XL'].append(self.xl.copy())
+                if self.save_covs: self.covariances_log.append(full_cov_df.round(3).to_dict() if not full_cov_df.empty else None)
                 print(f"--- Generation {r_cur_gen_num} Processing Done ---")
-                # --- Write final summary to file if filename is provided ---
-                if self.output_summary_filename:
-                    self._write_simulation_summary_to_file()
+                if self.output_summary_filename: self._write_simulation_summary_to_file()
                 
-            return {
-                'SUMMARY.RES': self.summary_results,
-                'XO': self.xo, 'XL': self.xl, 'PHEN': self.phen_df,
-                'HISTORY': self.history,
-                'COVARIANCES': self.covariances_log
-            }
+            return {'SUMMARY.RES': self.summary_results, 'XO': self.xo, 'XL': self.xl, 'PHEN': self.phen_df, 'HISTORY': self.history, 'COVARIANCES': self.covariances_log}

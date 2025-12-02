@@ -21,8 +21,8 @@ def main():
     # Base simulation parameters
     base_params = {
         "num_generations": 20,     # Number of generations to simulate
-        "pop_size": 10000,          # Population size (smaller for testing)
-        "n_CV": 100,               # Number of causal variants
+        "pop_size": 3000,          # Population size (smaller for testing)
+        "n_CV": 300,               # Number of causal variants
         "rg_effects": 0,         # Genetic correlation between effects
         "maf_min": 0.25,           # Minimum minor allele frequency
         "maf_max": 0.45,           # Maximum minor allele frequency
