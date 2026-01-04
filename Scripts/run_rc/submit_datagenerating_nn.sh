@@ -12,8 +12,8 @@
 #SBATCH --error=slurm_logs/datagen_nn_%A_%a.err
 
 # Array for 200 different parameter conditions
-# Run up to 50 jobs in parallel to manage cluster resources
-#SBATCH --array=1-2%2
+# Run up to 40 jobs in parallel to manage cluster resources
+#SBATCH --array=1-200%40
 
 # --- Job Configuration ---
 mkdir -p slurm_logs
