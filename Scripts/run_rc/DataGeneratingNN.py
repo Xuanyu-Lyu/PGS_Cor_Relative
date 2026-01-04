@@ -280,6 +280,14 @@ def run_single_iteration(iteration, condition_name, params, matrices, scratch_di
     # Run simulation
     results = sim.run_simulation()
     
+    # Save raw simulation data for final generations
+    save_simulation_results(
+        results, 
+        str(iter_dir), 
+        file_prefix=f"iteration_{iteration+1:02d}",
+        scope=FINAL_GENS
+    )
+    
     return results
 
 def extract_and_analyze_relationships(results, iteration):
@@ -321,7 +329,7 @@ def extract_and_analyze_relationships(results, iteration):
                 pairs_with_measures[f'{var}_1'] = pairs_with_measures['Person_ID'].map(
                     lambda id_val: measures_lookup.get(id_val, {}).get(var, np.nan)
                 )
-                pairs_with_measures[f'{var}_2'] = pairs_with_measures['Related_ID'].map(
+                pairs_with_measures[f'{var}_2'] = pairs_with_measures['Relative_ID'].map(
                     lambda id_val: measures_lookup.get(id_val, {}).get(var, np.nan)
                 )
             
@@ -330,7 +338,7 @@ def extract_and_analyze_relationships(results, iteration):
                 pairs_with_measures[f'{var}_1'] = pairs_with_measures['Person_ID'].map(
                     lambda id_val: measures_lookup.get(id_val, {}).get(var, np.nan)
                 )
-                pairs_with_measures[f'{var}_2'] = pairs_with_measures['Related_ID'].map(
+                pairs_with_measures[f'{var}_2'] = pairs_with_measures['Relative_ID'].map(
                     lambda id_val: measures_lookup.get(id_val, {}).get(var, np.nan)
                 )
             
