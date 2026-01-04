@@ -43,7 +43,7 @@ def test_mating_modes():
     f12 = 0
     f21 = 0
     re = 0
-    prop_h2_latent2 = .8/0.8  # = 1.0
+    prop_h2_latent2 = .7/0.8  # = 1.0
     
     # Setup matrices (same as setup_matrices in run_approximation_bi_rc.py)
     k2_matrix = np.array([[1, rg], [rg, 1]])

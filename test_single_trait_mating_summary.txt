@@ -1,5 +1,5 @@
 --- Simulation Summary Output ---
-Timestamp: 2025-12-01 23:41:05
+Timestamp: 2025-12-01 23:56:36
 Output File: test_single_trait_mating_summary.txt
 
 --- Simulation Setup Parameters ---
@@ -18,10 +18,10 @@ k2_matrix:
  [0.7500, 1.0000]]
 d_mat: 
 [[0.3464, 0.0000],
- [0.0000, 0.0000]]
+ [0.0000, 0.3536]]
 a_mat: 
 [[0.6928, 0.0000],
- [0.0000, 1.0000]]
+ [0.0000, 0.9354]]
 f_mat: 
 [[0.1000, 0.0000],
  [0.0000, 0.2000]]
@@ -32,37 +32,37 @@ cove_mat:
 [[0.4000, 0.0000],
  [0.0000, 0.0000]]
 covy_mat: 
-[[1.0000, 0.5196],
- [0.5196, 1.0000]]
+[[1.0000, 0.5779],
+ [0.5779, 1.0000]]
 am_list (mu for Gen0 parents): 0.6500
 
 
 --- Summary for Final Generation (Generation 15) ---
 Generation: 15
-Population Size: 3000
+Population Size: 2995
 Mating Correlation (mu for these parents): 0.6500
 
 Variance Components (for Y-scaled values):
   VAO: 
-[[0.2749, 0.0000],
- [0.0000, 0.0000]]
+[[0.2854, 0.0623],
+ [0.0623, 0.1449]]
   VAL: 
-[[1.2157, 1.4250],
- [1.4250, 2.6390]]
+[[1.3797, 1.4210],
+ [1.4210, 2.1947]]
   VF: 
-[[0.0868, 0.2311],
- [0.2311, 0.7912]]
+[[0.0907, 0.2338],
+ [0.2338, 0.7695]]
   VE: 
-[[0.3920, 0.0000],
+[[0.3919, 0.0000],
  [0.0000, 0.0000]]
   VP: 
-[[2.9319, 3.4907],
- [3.4907, 6.0218]]
+[[3.2083, 3.6851],
+ [3.6851, 5.9887]]
 
 Heritabilities:
-  h2 (Trait1, Trait2): (0.5084, 0.4382)
-  h2.obs (Trait1, Trait2): (0.0938, 0.0000)
-  h2.lat (Trait1, Trait2): (0.4146, 0.4382)
+  h2 (Trait1, Trait2): (0.5190, 0.3907)
+  h2.obs (Trait1, Trait2): (0.0889, 0.0242)
+  h2.lat (Trait1, Trait2): (0.4300, 0.3665)
 
 Key Covariance Matrices from This Generation:
 
