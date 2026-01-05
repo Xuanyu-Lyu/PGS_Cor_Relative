@@ -95,14 +95,26 @@ def save_conditions_config():
     """Save all conditions to a CSV file for reference and reproducibility."""
     PROJECT_BASE.mkdir(parents=True, exist_ok=True)
     
-    if not CONDITIONS_FILE.exists():
-        print("Generating parameter conditions...")
-        conditions = generate_conditions(n_conditions=400, seed=42)
+    n_conditions_needed = 400
+    needs_regeneration = False
+    
+    if CONDITIONS_FILE.exists():
+        # Check if existing file has the right number of conditions
+        existing_df = pd.read_csv(CONDITIONS_FILE)
+        if len(existing_df) != n_conditions_needed:
+            print(f"⚠ Existing config has {len(existing_df)} conditions, need {n_conditions_needed}")
+            needs_regeneration = True
+        else:
+            print(f"✓ Using existing conditions from {CONDITIONS_FILE} ({len(existing_df)} conditions)")
+    else:
+        needs_regeneration = True
+    
+    if needs_regeneration:
+        print(f"Generating {n_conditions_needed} parameter conditions...")
+        conditions = generate_conditions(n_conditions=n_conditions_needed, seed=42)
         df = pd.DataFrame(conditions)
         df.to_csv(CONDITIONS_FILE, index=False)
         print(f"✓ Saved {len(conditions)} conditions to {CONDITIONS_FILE}")
-    else:
-        print(f"✓ Using existing conditions from {CONDITIONS_FILE}")
 
 def load_condition(task_id):
     """Load the condition for a specific task ID."""
