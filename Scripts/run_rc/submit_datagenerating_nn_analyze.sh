@@ -40,3 +40,13 @@ echo "Starting analysis for condition $SLURM_ARRAY_TASK_ID..."
 python -u DataGeneratingNN_Analyze.py
 
 echo "Task $SLURM_ARRAY_TASK_ID completed."
+
+# If this is the last task, combine all data
+if [ "$SLURM_ARRAY_TASK_ID" == "200" ]; then
+    echo ""
+    echo "================================================"
+    echo "This is the final task - combining all data..."
+    echo "================================================"
+    python -u CombineNN_Data.py --split --test_size 0.2
+    echo "Data combination completed."
+fi

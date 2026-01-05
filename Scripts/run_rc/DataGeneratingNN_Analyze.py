@@ -33,7 +33,6 @@ sys.path.insert(0, str(simfunc_dir))
 
 from find_relative_setbased import find_relationship_pairs
 from extract_measures import extract_individual_measures, compute_correlations_for_multiple_variables
-from save_simulation_data import load_simulation_results
 
 # ============================================================================
 # CONFIGURATION
@@ -64,6 +63,91 @@ RELATIONSHIP_TYPES = [
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
+def load_simulation_results(output_folder, file_prefix):
+    """
+    Load simulation results from saved TSV files.
+    
+    Args:
+        output_folder (str): Path to folder containing saved files
+        file_prefix (str): Prefix used when saving files
+        
+    Returns:
+        dict: Results dictionary compatible with find_relationship_pairs
+    """
+    import glob
+    
+    results = {
+        'HISTORY': {
+            'PHEN': [],
+            'XO': [],
+            'XL': [],
+            'MATES': []
+        }
+    }
+    
+    print(f"    Loading files from {output_folder} with prefix {file_prefix}")
+    
+    # Find all generation files
+    phen_files = sorted(glob.glob(os.path.join(output_folder, f"{file_prefix}_phen_gen*.tsv")))
+    xo_files = sorted(glob.glob(os.path.join(output_folder, f"{file_prefix}_xo_gen*.tsv")))
+    xl_files = sorted(glob.glob(os.path.join(output_folder, f"{file_prefix}_xl_gen*.tsv")))
+    
+    if not phen_files:
+        print(f"    Warning: No phenotype files found")
+        return None
+    
+    # Load PHEN data
+    for phen_file in phen_files:
+        try:
+            phen_df = pd.read_csv(phen_file, sep='\t')
+            results['HISTORY']['PHEN'].append(phen_df)
+        except Exception as e:
+            print(f"    Error loading {phen_file}: {e}")
+            return None
+    
+    # Load XO data
+    for xo_file in xo_files:
+        try:
+            xo_arr = np.loadtxt(xo_file, delimiter='\t')
+            results['HISTORY']['XO'].append(xo_arr)
+        except Exception as e:
+            print(f"    Error loading {xo_file}: {e}")
+            return None
+    
+    # Load XL data
+    for xl_file in xl_files:
+        try:
+            xl_arr = np.loadtxt(xl_file, delimiter='\t')
+            results['HISTORY']['XL'].append(xl_arr)
+        except Exception as e:
+            print(f"    Error loading {xl_file}: {e}")
+            return None
+    
+    # Load MATES data (males and females for each generation)
+    # Extract generation numbers from phen files to know what to look for
+    for phen_file in phen_files:
+        gen_num = int(phen_file.split('_gen')[1].split('.')[0])
+        males_file = os.path.join(output_folder, f"{file_prefix}_mates_gen{gen_num}_males.tsv")
+        females_file = os.path.join(output_folder, f"{file_prefix}_mates_gen{gen_num}_females.tsv")
+        
+        mates_dict = {}
+        if os.path.exists(males_file):
+            try:
+                mates_dict['males.PHENDATA'] = pd.read_csv(males_file, sep='\t')
+            except Exception as e:
+                print(f"    Warning: Could not load {males_file}: {e}")
+        
+        if os.path.exists(females_file):
+            try:
+                mates_dict['females.PHENDATA'] = pd.read_csv(females_file, sep='\t')
+            except Exception as e:
+                print(f"    Warning: Could not load {females_file}: {e}")
+        
+        results['HISTORY']['MATES'].append(mates_dict if mates_dict else None)
+    
+    print(f"    Loaded {len(results['HISTORY']['PHEN'])} generations")
+    return results
 
 def load_condition(task_id):
     """Load the condition for a specific task ID."""
