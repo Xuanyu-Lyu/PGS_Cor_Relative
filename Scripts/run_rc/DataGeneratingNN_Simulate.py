@@ -47,12 +47,12 @@ MAF_MAX = 0.5
 # Parameter ranges for data generation (5+ values each)
 PARAM_RANGES = {
     'f11': [0.05, 0.10, 0.15, 0.20, 0.25],
-    'prop_h2_latent1': [0.6, 0.7, 0.8, 0.9, 1.0],
+    'prop_h2_latent1': [0.5, 0.6, 0.7, 0.8, 0.9],
     'vg1': [0.4, 0.5, 0.6, 0.7, 0.8],
-    'vg2': [0.5, 0.625, 0.75, 0.875, 1.0],
-    'f22': [0.10, 0.15, 0.20, 0.25, 0.30],
+    'vg2': [0.375 , 0.5, 0.625, 0.75, 0.875],
+    'f22': [0.05, 0.10, 0.15, 0.20, 0.25, 0.30],
     'am22': [0.45, 0.525, 0.60, 0.675, 0.75],
-    'rg': [0.60, 0.675, 0.75, 0.825, 0.90]
+    'rg': [0.525, 0.60, 0.675, 0.75, 0.825, 0.90]
 }
 
 # Fixed parameters
@@ -70,7 +70,7 @@ FIXED_PARAMS = {
 # PARAMETER GENERATION
 # ============================================================================
 
-def generate_conditions(n_conditions=200, seed=42):
+def generate_conditions(n_conditions=400, seed=42):
     """Generate parameter combinations."""
     np.random.seed(seed)
     

@@ -13,7 +13,7 @@
 
 # Array for 200 different parameter conditions
 # Run up to 40 jobs in parallel to manage cluster resources
-#SBATCH --array=1-200%40
+#SBATCH --array=1-400%50
 
 # --- Job Configuration ---
 mkdir -p slurm_logs
