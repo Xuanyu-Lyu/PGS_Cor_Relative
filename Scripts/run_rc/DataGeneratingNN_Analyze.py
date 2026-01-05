@@ -265,13 +265,20 @@ def analyze_condition(condition_name, scratch_base, project_base):
         print(f"✗ Project directory not found: {project_dir}")
         return False
     
-    # Load condition parameters
-    params_file = project_dir / "condition_parameters.csv"
-    if not params_file.exists():
-        print(f"✗ Parameters file not found: {params_file}")
+    # Load condition parameters from central conditions_config.csv
+    conditions_file = project_base / "conditions_config.csv"
+    if not conditions_file.exists():
+        print(f"✗ Conditions config file not found: {conditions_file}")
         return False
     
-    condition = pd.read_csv(params_file).iloc[0].to_dict()
+    conditions_df = pd.read_csv(conditions_file)
+    condition_row = conditions_df[conditions_df['name'] == condition_name]
+    
+    if len(condition_row) == 0:
+        print(f"✗ Condition {condition_name} not found in {conditions_file}")
+        return False
+    
+    condition = condition_row.iloc[0].to_dict()
     print(f"Loaded parameters:")
     print(f"  f11={condition['f11']:.4f}, vg1={condition['vg1']:.4f}, prop_h2_latent1={condition['prop_h2_latent1']:.4f}")
     print(f"  f22={condition['f22']:.4f}, vg2={condition['vg2']:.4f}, am22={condition['am22']:.4f}")
