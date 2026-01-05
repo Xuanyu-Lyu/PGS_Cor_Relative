@@ -37,7 +37,7 @@ np.random.seed(42)
 
 # Default paths
 DEFAULT_DATA_PATH = "/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN/combined/nn_training_data.csv"
-DEFAULT_OUTPUT_DIR = "/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Scripts/fit_nn/results"
+DEFAULT_OUTPUT_DIR = "results"  # Use relative path to work both locally and on cluster
 
 # Parameter names (targets to predict)
 PARAM_NAMES = ['f11', 'prop_h2_latent1', 'vg1', 'vg2', 'f22', 'am22', 'rg']
@@ -135,8 +135,15 @@ def load_and_preprocess_data(data_path, train_ratio=0.7, val_ratio=0.15):
     print(f"✓ Loaded {len(df)} samples")
     
     # Separate features and targets
-    feature_cols = [col for col in df.columns if col not in PARAM_NAMES + ['Iteration']]
-    target_cols = PARAM_NAMES
+    # Check if parameters have 'param_' prefix
+    if 'param_f11' in df.columns:
+        target_cols = [f'param_{p}' for p in PARAM_NAMES]
+        exclude_cols = target_cols + ['Iteration', 'Condition']
+    else:
+        target_cols = PARAM_NAMES
+        exclude_cols = PARAM_NAMES + ['Iteration', 'Condition']
+    
+    feature_cols = [col for col in df.columns if col not in exclude_cols]
     
     print(f"\nFeatures: {len(feature_cols)} correlation values")
     print(f"Targets: {len(target_cols)} parameters")

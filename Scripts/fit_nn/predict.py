@@ -88,7 +88,15 @@ def predict(model, feature_scaler, target_scaler, data, device):
     """
     # Convert to numpy if DataFrame
     if isinstance(data, pd.DataFrame):
-        feature_cols = [col for col in data.columns if col not in PARAM_NAMES + ['Iteration']]
+        # Check if parameters have 'param_' prefix
+        if 'param_f11' in data.columns:
+            param_cols = [f'param_{p}' for p in PARAM_NAMES]
+            exclude_cols = param_cols + ['Iteration', 'Condition']
+        else:
+            param_cols = PARAM_NAMES
+            exclude_cols = PARAM_NAMES + ['Iteration', 'Condition']
+        
+        feature_cols = [col for col in data.columns if col not in exclude_cols]
         X = data[feature_cols].values
     else:
         X = data
@@ -168,7 +176,17 @@ def main():
     print(f"\n✓ Predictions saved to: {output_path}")
     
     # If original data has true parameters, compute accuracy
-    if all(param in data.columns for param in PARAM_NAMES):
+    # Check if parameters have 'param_' prefix
+    has_params = False
+    param_cols = []
+    if 'param_f11' in data.columns:
+        param_cols = [f'param_{p}' for p in PARAM_NAMES]
+        has_params = all(param in data.columns for param in param_cols)
+    elif all(param in data.columns for param in PARAM_NAMES):
+        param_cols = PARAM_NAMES
+        has_params = True
+    
+    if has_params:
         print("\n" + "="*70)
         print("PREDICTION ACCURACY (vs true values)")
         print("="*70)
@@ -178,8 +196,8 @@ def main():
         print(f"\n{'Parameter':<20} {'R²':<10} {'RMSE':<10} {'MAE':<10}")
         print("-" * 70)
         
-        for param in PARAM_NAMES:
-            y_true = data[param].values
+        for i, param in enumerate(PARAM_NAMES):
+            y_true = data[param_cols[i]].values
             y_pred = predictions[param].values
             
             r2 = r2_score(y_true, y_pred)
@@ -189,7 +207,7 @@ def main():
             print(f"{param:<20} {r2:<10.4f} {rmse:<10.4f} {mae:<10.4f}")
         
         # Overall metrics
-        y_true_all = data[PARAM_NAMES].values.flatten()
+        y_true_all = data[param_cols].values.flatten()
         y_pred_all = predictions.values.flatten()
         overall_r2 = r2_score(y_true_all, y_pred_all)
         overall_rmse = np.sqrt(mean_squared_error(y_true_all, y_pred_all))

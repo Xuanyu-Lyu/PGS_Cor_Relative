@@ -8,6 +8,62 @@ __pycache__/
 *.tsv
 *.csv
 
+# Neural Network Training Files
+# Model files
+*.pt
+*.pth
+*.h5
+*.hdf5
+*.onnx
+*.pb
+*.caffemodel
+
+# Scalers and preprocessors
+*.pkl
+*.joblib
+*.pickle
+
+# Training results directories
+results/
+results_*/
+checkpoints/
+runs/
+logs/
+wandb/
+
+# Model outputs
+predictions/
+predictions.csv
+*_predictions.csv
+
+# Training visualizations
+*.png
+*.jpg
+*.jpeg
+*.svg
+training_history.*
+predictions_vs_true.*
+residuals.*
+prediction_*.png
+
+# Metrics and configs
+test_metrics.json
+train_metrics.json
+*_metrics.json
+config.json
+model_architecture.txt
+
+# TensorBoard
+events.out.tfevents.*
+*.tfevents
+
+# MLflow
+mlruns/
+
+# DVC (Data Version Control)
+.dvc/
+*.dvc
+
 # C extensions
 *.so
 

@@ -48,8 +48,9 @@ FINAL_GENS = [12, 13, 14]  # Final 3 generations to analyze
 # Relationship types to analyze
 RELATIONSHIP_TYPES = [
     'S',        # Siblings
+    'HSFS',     # Half-siblings
     'PSC',      # Parent-sibling-child (avuncular)
-    'PPSCC',    # First cousins
+    'PPSCC',    # First cousins (second cousins once removed)
     'M',        # Mates
     'MS',       # Mate's sibling (sibling-in-law)
     'SMS',      # Sibling's mate's sibling
@@ -58,6 +59,11 @@ RELATIONSHIP_TYPES = [
     'SMSC',     # Sibling's mate's sibling's child
     'SMSM',     # Sibling's mate's sibling's mate
     'SMSMS',    # Sibling's mate's sibling's mate's sibling
+    'MSMSM',    # Mate's sibling's mate's sibling's mate
+    'MSMSC',    # Mate's sibling's mate's sibling's child
+    'PSMSC',    # Parent's sibling's mate's sibling's child
+    'SMSMSC',   # Sibling's mate's sibling's mate's sibling's child
+    'MSMSMS',   # Mate's sibling's mate's sibling's mate's sibling
 ]
 
 # ============================================================================
