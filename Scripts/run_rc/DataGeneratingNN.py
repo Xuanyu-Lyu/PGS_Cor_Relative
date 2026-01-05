@@ -389,14 +389,28 @@ def run_condition(condition, scratch_base, project_base):
     scratch_dir.mkdir(parents=True, exist_ok=True)
     project_dir.mkdir(parents=True, exist_ok=True)
     
+    # Save condition parameters immediately
+    params_file = project_dir / "condition_parameters.csv"
+    params_df = pd.DataFrame([condition])
+    params_df.to_csv(params_file, index=False)
+    print(f"  ✓ Saved parameters to {params_file}")
+    
     # Setup matrices
     matrices = setup_matrices(condition)
     
     # Storage for results
     all_correlations = []
+    iteration_status = []
     
     # Run iterations
     for iteration in range(ITERATIONS_PER_CONDITION):
+        iter_info = {
+            'Iteration': iteration + 1,
+            'Status': 'Failed',
+            'Error': None,
+            'N_Correlations': 0
+        }
+        
         try:
             # Run simulation
             results = run_single_iteration(iteration, condition_name, condition, matrices, scratch_dir)
@@ -406,28 +420,41 @@ def run_condition(condition, scratch_base, project_base):
             
             if correlations_df is not None:
                 all_correlations.append(correlations_df)
-                print(f"    ✓ Iteration {iteration+1} completed")
+                iter_info['Status'] = 'Success'
+                iter_info['N_Correlations'] = len(correlations_df)
+                print(f"    ✓ Iteration {iteration+1} completed - {len(correlations_df)} correlation records")
+            else:
+                iter_info['Error'] = 'No correlations computed'
+                print(f"    ⚠ Iteration {iteration+1} completed but no correlations computed")
             
         except Exception as e:
+            iter_info['Error'] = str(e)
             print(f"    ✗ Error in Iteration {iteration+1}: {e}")
             traceback.print_exc()
-            continue
+        
+        iteration_status.append(iter_info)
+    
+    # Save iteration status summary
+    status_file = project_dir / "iteration_status.csv"
+    status_df = pd.DataFrame(iteration_status)
+    status_df.to_csv(status_file, index=False)
+    print(f"\n  ✓ Saved iteration status to {status_file}")
     
     # Save results for this condition
     if all_correlations:
-        print(f"\n  Saving results for {condition_name}...")
+        print(f"\n  Saving correlation results for {condition_name}...")
         combined_correlations = pd.concat(all_correlations, ignore_index=True)
         
         # Add parameter values to each row for NN training
         for param in ['f11', 'prop_h2_latent1', 'vg1', 'vg2', 'f22', 'am22', 'rg']:
             combined_correlations[f'param_{param}'] = condition[param]
         
-        # Save to project directory
+        # Save detailed correlations with all iterations
         output_file = project_dir / "all_iterations_correlations.csv"
         combined_correlations.to_csv(output_file, index=False)
-        print(f"  ✓ Saved to {output_file}")
+        print(f"  ✓ Saved {len(combined_correlations)} correlation records to {output_file}")
         
-        # Create summary statistics
+        # Create summary statistics by relationship and variable
         summary = combined_correlations.groupby(['RelationshipPath', 'Variable']).agg({
             'Correlation': ['mean', 'std', 'min', 'max'],
             'N_Pairs': 'sum',
@@ -436,11 +463,47 @@ def run_condition(condition, scratch_base, project_base):
         
         summary_file = project_dir / "summary_statistics.csv"
         summary.to_csv(summary_file)
-        print(f"  ✓ Saved summary to {summary_file}")
+        print(f"  ✓ Saved summary statistics to {summary_file}")
+        
+        # Create a wide-format summary for NN training (one row per iteration)
+        print(f"  Creating NN training format...")
+        nn_training_data = []
+        
+        for iteration in range(1, ITERATIONS_PER_CONDITION + 1):
+            iter_data = combined_correlations[combined_correlations['Iteration'] == iteration]
+            if len(iter_data) == 0:
+                continue
+            
+            row = {
+                'Iteration': iteration,
+                'Condition': condition_name,
+            }
+            
+            # Add parameters
+            for param in ['f11', 'prop_h2_latent1', 'vg1', 'vg2', 'f22', 'am22', 'rg']:
+                row[f'param_{param}'] = condition[param]
+            
+            # Add correlations for each relationship-variable combination
+            for _, corr_row in iter_data.iterrows():
+                col_name = f"cor_{corr_row['RelationshipPath']}_{corr_row['Variable']}"
+                row[col_name] = corr_row['Correlation']
+                # Also add N_Pairs for reference
+                col_name_n = f"n_{corr_row['RelationshipPath']}_{corr_row['Variable']}"
+                row[col_name_n] = corr_row['N_Pairs']
+            
+            nn_training_data.append(row)
+        
+        if nn_training_data:
+            nn_training_file = project_dir / "nn_training_format.csv"
+            nn_training_df = pd.DataFrame(nn_training_data)
+            nn_training_df.to_csv(nn_training_file, index=False)
+            print(f"  ✓ Saved NN training format to {nn_training_file}")
         
         return True
-    
-    return False
+    else:
+        print(f"\n  ⚠ No correlations computed for {condition_name}")
+        print(f"  Check iteration_status.csv for details")
+        return False
 
 # ============================================================================
 # MAIN EXECUTION
