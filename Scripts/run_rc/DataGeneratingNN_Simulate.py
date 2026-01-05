@@ -97,7 +97,7 @@ def save_conditions_config():
     
     if not CONDITIONS_FILE.exists():
         print("Generating parameter conditions...")
-        conditions = generate_conditions(n_conditions=200, seed=42)
+        conditions = generate_conditions(n_conditions=400, seed=42)
         df = pd.DataFrame(conditions)
         df.to_csv(CONDITIONS_FILE, index=False)
         print(f"✓ Saved {len(conditions)} conditions to {CONDITIONS_FILE}")
