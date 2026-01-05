@@ -188,10 +188,12 @@ def extract_and_analyze_relationships(results, iteration):
     
     for rel_path in RELATIONSHIP_TYPES:
         try:
+            # Note: Since we only load the final 3 generations, they become indices 0, 1, 2
+            # in the results dictionary, not 12, 13, 14
             pairs = find_relationship_pairs(
                 results, rel_path,
                 output_format='long',
-                generations=FINAL_GENS
+                generations=[0, 1, 2]
             )
             
             if len(pairs) == 0:
