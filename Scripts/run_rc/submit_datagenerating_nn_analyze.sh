@@ -5,7 +5,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=64G
-#SBATCH --time=04:00:00
+#SBATCH --time=01:00:00
 #SBATCH --chdir /projects/xuly4739/Py_Projects/PGS_Cor_Relative/Scripts/run_rc
 #SBATCH --exclude bmem-rico1
 #SBATCH --output=slurm_logs/nn_analyze_%A_%a.out
@@ -13,7 +13,7 @@
 
 # Array for 200 different parameter conditions
 # Run up to 40 jobs in parallel to manage cluster resources
-#SBATCH --array=1-200%40
+#SBATCH --array=1-400%40
 
 # --- Job Configuration ---
 mkdir -p slurm_logs
@@ -42,7 +42,7 @@ python -u DataGeneratingNN_Analyze.py
 echo "Task $SLURM_ARRAY_TASK_ID completed."
 
 # If this is the last task, combine all data
-if [ "$SLURM_ARRAY_TASK_ID" == "200" ]; then
+if [ "$SLURM_ARRAY_TASK_ID" == "400" ]; then
     echo ""
     echo "================================================"
     echo "This is the final task - combining all data..."
