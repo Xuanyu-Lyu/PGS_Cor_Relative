@@ -5,7 +5,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=150G
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 #SBATCH --chdir /projects/xuly4739/Py_Projects/PGS_Cor_Relative/Scripts/run_rc
 #SBATCH --exclude bmem-rico1
 #SBATCH --output=slurm_logs/predicted_cond_%j.out

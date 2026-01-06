@@ -8,22 +8,22 @@ echo "======================================================================="
 echo "Predicting parameters from observed PGS correlations"
 echo "======================================================================="
 echo ""
-echo "Using model: results_realistic_pgs"
+echo "Using model: results_400con"
 echo "Input correlations: observed_correlations.csv"
 echo ""
 
 # Run the prediction script
 python predict_from_observed.py \
-    --model_dir results_realistic_pgs \
+    --model_dir results_400con \
     --correlations observed_correlations.csv \
-    --output predictions_observed.csv
+    --output predictions_observed400.csv
 
 # Check if successful
 if [ $? -eq 0 ]; then
     echo ""
     echo "======================================================================="
     echo "✓ Prediction completed successfully!"
-    echo "✓ Results saved to: results_realistic_pgs/predictions_observed.csv"
+    echo "✓ Results saved to: results_400con/predictions_observed400.csv"
     echo "======================================================================="
 else
     echo ""

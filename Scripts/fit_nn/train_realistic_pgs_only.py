@@ -146,7 +146,7 @@ class FeatureAwarePredictor(nn.Module):
     - Deeper initial layers to extract patterns
     - Parameter-specific branches
     """
-    def __init__(self, n_features, hidden_sizes=[256, 256, 128, 128], dropout_rate=0.4):
+    def __init__(self, n_features, hidden_sizes=[512, 512, 256, 256], dropout_rate=0.4):
         super(FeatureAwarePredictor, self).__init__()
         
         # Shared feature extraction

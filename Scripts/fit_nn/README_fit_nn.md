@@ -323,3 +323,6 @@ After successful training:
 3. **Compare** predictions with other methods
 4. **Refine** model architecture based on performance
 5. **Document** findings and performance benchmarks
+
+## useful command
+python ./train_realistic_pgs_only.py --data nn_training_combined400.csv --device cpu --output ./results_400con --interaction_degree 2 --epochs 3000
