@@ -1,17 +1,12 @@
 """
-Data Generation Script for Neural Network Training
+Data Generation Script for Neural Network Training - COMBINED VERSION
 
-This script generates synthetic data using forward-time simulation across a wide range
-of parameter combinations. The generated data (parameter values + resulting correlations)
-will be used to train a neural network to predict starting parameters from distant
-relatives' PGS correlations.
-
-Each parameter is varied across at least 5 values to ensure good coverage of the
-parameter space. The script runs multiple iterations per condition for robustness.
+This script runs forward-time simulations and immediately analyzes them without
+saving raw simulation data. This increases efficiency and saves storage space.
 
 Usage:
-    python DataGeneratingNN.py
-    (Run via SLURM array job - see submit_datagenerating_nn.sh)
+    python DataGeneratingNN_Combined.py
+    (Run via SLURM array job - see submit_datagenerating_nn_combined.sh)
 """
 
 import numpy as np
@@ -27,7 +22,6 @@ simfunc_dir = script_dir.parent / "SimulationFunctions"
 sys.path.insert(0, str(simfunc_dir))
 
 from SimulationFunctions import AssortativeMatingSimulation
-from save_simulation_data import save_simulation_results
 from find_relative_setbased import find_relationship_pairs
 from extract_measures import extract_individual_measures, compute_correlations_for_multiple_variables
 
@@ -35,15 +29,14 @@ from extract_measures import extract_individual_measures, compute_correlations_f
 # CONFIGURATION
 # ============================================================================
 
-# Directory setup
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/DataGeneratingNN")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN")
+# Directory setup - using a new directory for this combined approach
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN_Large")
 
 # Get SLURM array task ID
 SLURM_TASK_ID = int(os.environ.get('SLURM_ARRAY_TASK_ID', '1'))
 
 # Simulation parameters
-ITERATIONS_PER_CONDITION = 10  # Number of iterations per condition
+ITERATIONS_PER_CONDITION = 40  # Number of iterations per condition
 POP_SIZE = 40000
 N_GENERATIONS = 15
 FINAL_GENS = [12, 13, 14]  # Final 3 generations to analyze
@@ -54,12 +47,12 @@ MAF_MAX = 0.5
 # Parameter ranges for data generation (5+ values each)
 PARAM_RANGES = {
     'f11': [0.05, 0.10, 0.15, 0.20, 0.25],
-    'prop_h2_latent1': [0.6, 0.7, 0.8, 0.9, 1.0],
+    'prop_h2_latent1': [0.5, 0.6, 0.7, 0.8, 0.9],
     'vg1': [0.4, 0.5, 0.6, 0.7, 0.8],
-    'vg2': [0.5, 0.625, 0.75, 0.875, 1.0],
-    'f22': [0.10, 0.15, 0.20, 0.25, 0.30],
+    'vg2': [0.375, 0.5, 0.625, 0.75, 0.875],
+    'f22': [0.05, 0.10, 0.15, 0.20, 0.25, 0.30],
     'am22': [0.45, 0.525, 0.60, 0.675, 0.75],
-    'rg': [0.60, 0.675, 0.75, 0.825, 0.90]
+    'rg': [0.525, 0.60, 0.675, 0.75, 0.825, 0.90]
 }
 
 # Fixed parameters
@@ -73,9 +66,10 @@ FIXED_PARAMS = {
     'prop_h2_latent2': 1.0  # 0.8/0.8 = 1.0
 }
 
-# Relationship types to analyze (focusing on key relationships for NN training)
+# Relationship types to analyze
 RELATIONSHIP_TYPES = [
     'S',        # Siblings
+    'HSFS',     # Half-siblings
     'PSC',      # Parent-sibling-child (avuncular)
     'PPSCC',    # First cousins
     'M',        # Mates
@@ -86,68 +80,62 @@ RELATIONSHIP_TYPES = [
     'SMSC',     # Sibling's mate's sibling's child
     'SMSM',     # Sibling's mate's sibling's mate
     'SMSMS',    # Sibling's mate's sibling's mate's sibling
+    'MSMSM',    # Mate's sibling's mate's sibling's mate
+    'MSMSC',    # Mate's sibling's mate's sibling's child
+    'PSMSC',    # Parent's sibling's mate's sibling's child
+    'SMSMSC',   # Sibling's mate's sibling's mate's sibling's child
+    'MSMSMS',   # Mate's sibling's mate's sibling's mate's sibling
 ]
 
 # ============================================================================
 # PARAMETER GENERATION
 # ============================================================================
 
-def generate_conditions(n_conditions=200, seed=42):
-    """
-    Generate parameter combinations using Latin hypercube sampling for better
-    coverage of parameter space.
-    
-    Parameters:
-    -----------
-    n_conditions : int
-        Number of different parameter combinations to generate
-    seed : int
-        Random seed for reproducibility
-    
-    Returns:
-    --------
-    list of dict
-        List of parameter dictionaries
-    """
+def generate_conditions(n_conditions=400, seed=42):
+    """Generate parameter combinations."""
     np.random.seed(seed)
     
     conditions = []
     param_names = list(PARAM_RANGES.keys())
-    n_params = len(param_names)
     
-    # Generate Latin hypercube samples
-    # Each parameter is divided into n_conditions bins
     for i in range(n_conditions):
         condition = {'name': f'Condition_{i+1:04d}'}
         
-        for j, param_name in enumerate(param_names):
+        for param_name in param_names:
             param_values = PARAM_RANGES[param_name]
-            # Sample uniformly from the available values
             condition[param_name] = np.random.choice(param_values)
         
-        # Add fixed parameters
         condition.update(FIXED_PARAMS)
         conditions.append(condition)
     
     return conditions
 
-# Generate all conditions (will be saved to file and loaded by each task)
 CONDITIONS_FILE = PROJECT_BASE / "conditions_config.csv"
 
 def save_conditions_config():
     """Save all conditions to a CSV file for reference and reproducibility."""
     PROJECT_BASE.mkdir(parents=True, exist_ok=True)
     
-    if not CONDITIONS_FILE.exists():
-        print("Generating parameter conditions...")
-        conditions = generate_conditions(n_conditions=200, seed=42)
-        
-        # Convert to DataFrame
+    n_conditions_needed = 400
+    needs_regeneration = False
+    
+    if CONDITIONS_FILE.exists():
+        # Check if existing file has the right number of conditions
+        existing_df = pd.read_csv(CONDITIONS_FILE)
+        if len(existing_df) != n_conditions_needed:
+            print(f"⚠ Existing config has {len(existing_df)} conditions, need {n_conditions_needed}")
+            needs_regeneration = True
+        else:
+            print(f"✓ Using existing conditions from {CONDITIONS_FILE} ({len(existing_df)} conditions)")
+    else:
+        needs_regeneration = True
+    
+    if needs_regeneration:
+        print(f"Generating {n_conditions_needed} parameter conditions...")
+        conditions = generate_conditions(n_conditions=n_conditions_needed, seed=42)
         df = pd.DataFrame(conditions)
         df.to_csv(CONDITIONS_FILE, index=False)
         print(f"✓ Saved {len(conditions)} conditions to {CONDITIONS_FILE}")
-    else:
-        print(f"✓ Using existing conditions from {CONDITIONS_FILE}")
 
 def load_condition(task_id):
     """Load the condition for a specific task ID."""
@@ -161,9 +149,7 @@ def load_condition(task_id):
 # ============================================================================
 
 def setup_matrices(params):
-    """
-    Setup covariance and other matrices based on simulation parameters.
-    """
+    """Setup covariance and other matrices based on simulation parameters."""
     vg1 = params['vg1']
     vg2 = params['vg2']
     rg = params['rg']
@@ -230,65 +216,16 @@ def setup_matrices(params):
         'k2_matrix': k2_matrix
     }
 
+# ============================================================================
+# ANALYSIS FUNCTIONS
+# ============================================================================
+
 def compute_pgs_from_components(measures_df):
-    """
-    Compute full PGS from transmissible components.
-    PGS1 = TPO1 + TMO1
-    PGS2 = TPO2 + TMO2
-    """
+    """Compute full PGS from transmissible components."""
     df = measures_df.copy()
     df['PGS1'] = df['TPO1'] + df['TMO1']
     df['PGS2'] = df['TPO2'] + df['TMO2']
     return df
-
-def run_single_iteration(iteration, condition_name, params, matrices, scratch_dir):
-    """
-    Run a single simulation iteration.
-    """
-    print(f"\n  Running {condition_name} - Iteration {iteration + 1}/{ITERATIONS_PER_CONDITION}")
-    
-    # Set seed for reproducibility
-    condition_hash = hash(condition_name) % 100000
-    seed = condition_hash * 100 + iteration + 1
-    
-    # Create iteration directory
-    iter_dir = scratch_dir / f"Iteration_{iteration+1:02d}"
-    iter_dir.mkdir(parents=True, exist_ok=True)
-    summary_filename = str(iter_dir / f"iteration_{iteration+1:02d}_summary.txt")
-    
-    # Extract mate_on_trait for single-trait mating mode
-    mate_on_trait = matrices.pop('mate_on_trait', None)
-    
-    # Initialize simulation
-    sim = AssortativeMatingSimulation(
-        n_CV=N_CV,
-        rg_effects=params['rg'],
-        maf_min=MAF_MIN,
-        maf_max=MAF_MAX,
-        num_generations=N_GENERATIONS,
-        pop_size=POP_SIZE,
-        mating_type="phenotypic",
-        avoid_inbreeding=True,
-        save_each_gen=True,
-        save_covs=True,
-        seed=seed,
-        output_summary_filename=summary_filename,
-        mate_on_trait=mate_on_trait,
-        **matrices
-    )
-    
-    # Run simulation
-    results = sim.run_simulation()
-    
-    # Save raw simulation data for final generations
-    save_simulation_results(
-        results, 
-        str(iter_dir), 
-        file_prefix=f"iteration_{iteration+1:02d}",
-        scope=FINAL_GENS
-    )
-    
-    return results
 
 def extract_and_analyze_relationships(results, iteration):
     """
@@ -303,6 +240,7 @@ def extract_and_analyze_relationships(results, iteration):
         individual_measures = compute_pgs_from_components(individual_measures)
     except Exception as e:
         print(f"    ✗ Error extracting measures: {e}")
+        traceback.print_exc()
         return None
     
     # Create lookup for individual measures
@@ -313,10 +251,14 @@ def extract_and_analyze_relationships(results, iteration):
     
     for rel_path in RELATIONSHIP_TYPES:
         try:
+            # Note: We analyze the final 3 generations (indices correspond to FINAL_GENS)
+            # Map generation indices: gen 12->0, gen 13->1, gen 14->2 in the trimmed results
+            gen_indices = [i for i, g in enumerate(range(N_GENERATIONS)) if g in FINAL_GENS]
+            
             pairs = find_relationship_pairs(
                 results, rel_path,
                 output_format='long',
-                generations=FINAL_GENS
+                generations=gen_indices
             )
             
             if len(pairs) == 0:
@@ -326,20 +268,20 @@ def extract_and_analyze_relationships(results, iteration):
             pairs_with_measures = pairs.copy()
             
             for var in variables:
-                pairs_with_measures[f'{var}_1'] = pairs_with_measures['Person_ID'].map(
-                    lambda id_val: measures_lookup.get(id_val, {}).get(var, np.nan)
+                pairs_with_measures[f'{var}_ID1'] = pairs['ID1'].map(
+                    lambda x: measures_lookup.get(x, {}).get(var, np.nan)
                 )
-                pairs_with_measures[f'{var}_2'] = pairs_with_measures['Relative_ID'].map(
-                    lambda id_val: measures_lookup.get(id_val, {}).get(var, np.nan)
+                pairs_with_measures[f'{var}_ID2'] = pairs['ID2'].map(
+                    lambda x: measures_lookup.get(x, {}).get(var, np.nan)
                 )
             
             # Add PGS1 and PGS2
             for var in ['PGS1', 'PGS2']:
-                pairs_with_measures[f'{var}_1'] = pairs_with_measures['Person_ID'].map(
-                    lambda id_val: measures_lookup.get(id_val, {}).get(var, np.nan)
+                pairs_with_measures[f'{var}_ID1'] = pairs['ID1'].map(
+                    lambda x: measures_lookup.get(x, {}).get(var, np.nan)
                 )
-                pairs_with_measures[f'{var}_2'] = pairs_with_measures['Relative_ID'].map(
-                    lambda id_val: measures_lookup.get(id_val, {}).get(var, np.nan)
+                pairs_with_measures[f'{var}_ID2'] = pairs['ID2'].map(
+                    lambda x: measures_lookup.get(x, {}).get(var, np.nan)
                 )
             
             # Compute correlations
@@ -367,10 +309,66 @@ def extract_and_analyze_relationships(results, iteration):
     
     return None
 
-def run_condition(condition, scratch_base, project_base):
-    """
-    Run all iterations for a single condition.
-    """
+def run_single_iteration(iteration, condition_name, params, matrices):
+    """Run a single simulation iteration and analyze it immediately."""
+    print(f"\n  Iteration {iteration + 1}/{ITERATIONS_PER_CONDITION}")
+    
+    # Set seed for reproducibility
+    condition_hash = hash(condition_name) % 100000
+    seed = condition_hash * 100 + iteration + 1
+    
+    # Extract mate_on_trait for single-trait mating mode
+    mate_on_trait = matrices.pop('mate_on_trait', None)
+    
+    # Initialize simulation
+    sim = AssortativeMatingSimulation(
+        n_CV=N_CV,
+        rg_effects=params['rg'],
+        maf_min=MAF_MIN,
+        maf_max=MAF_MAX,
+        num_generations=N_GENERATIONS,
+        pop_size=POP_SIZE,
+        mating_type="phenotypic",
+        avoid_inbreeding=True,
+        save_each_gen=True,
+        save_covs=True,
+        seed=seed,
+        output_summary_filename=None,  # Don't save summary
+        mate_on_trait=mate_on_trait,
+        **matrices
+    )
+    
+    # Run simulation
+    print(f"    Running simulation...")
+    results = sim.run_simulation()
+    
+    # Trim results to only keep final generations to save memory
+    trimmed_results = {
+        'HISTORY': {
+            'PHEN': [results['HISTORY']['PHEN'][i] for i in FINAL_GENS],
+            'XO': [results['HISTORY']['XO'][i] for i in FINAL_GENS],
+            'XL': [results['HISTORY']['XL'][i] for i in FINAL_GENS],
+            'MATES': [results['HISTORY']['MATES'][i] for i in FINAL_GENS]
+        }
+    }
+    
+    # Analyze relationships immediately
+    print(f"    Analyzing relationships...")
+    correlations_df = extract_and_analyze_relationships(trimmed_results, iteration)
+    
+    if correlations_df is not None:
+        print(f"    ✓ Computed {len(correlations_df)} correlations")
+        return correlations_df
+    else:
+        print(f"    ✗ No correlations computed")
+        return None
+
+# ============================================================================
+# MAIN CONDITION PROCESSING
+# ============================================================================
+
+def run_condition(condition, project_base):
+    """Run all iterations for a single condition."""
     condition_name = condition['name']
     
     print(f"\n{'#'*70}")
@@ -383,10 +381,8 @@ def run_condition(condition, scratch_base, project_base):
     print(f"# SLURM Task ID: {SLURM_TASK_ID}")
     print(f"{'#'*70}\n")
     
-    # Create condition-specific directories
-    scratch_dir = scratch_base / condition_name
+    # Create condition-specific directory
     project_dir = project_base / condition_name
-    scratch_dir.mkdir(parents=True, exist_ok=True)
     project_dir.mkdir(parents=True, exist_ok=True)
     
     # Save condition parameters immediately
@@ -398,9 +394,9 @@ def run_condition(condition, scratch_base, project_base):
     # Setup matrices
     matrices = setup_matrices(condition)
     
-    # Storage for results
-    all_correlations = []
+    # Track iteration status and results
     iteration_status = []
+    all_correlations = []
     
     # Run iterations
     for iteration in range(ITERATIONS_PER_CONDITION):
@@ -412,21 +408,12 @@ def run_condition(condition, scratch_base, project_base):
         }
         
         try:
-            # Run simulation
-            results = run_single_iteration(iteration, condition_name, condition, matrices, scratch_dir)
-            
-            # Extract and analyze relationships
-            correlations_df = extract_and_analyze_relationships(results, iteration)
+            correlations_df = run_single_iteration(iteration, condition_name, condition, matrices.copy())
             
             if correlations_df is not None:
-                all_correlations.append(correlations_df)
                 iter_info['Status'] = 'Success'
                 iter_info['N_Correlations'] = len(correlations_df)
-                print(f"    ✓ Iteration {iteration+1} completed - {len(correlations_df)} correlation records")
-            else:
-                iter_info['Error'] = 'No correlations computed'
-                print(f"    ⚠ Iteration {iteration+1} completed but no correlations computed")
-            
+                all_correlations.append(correlations_df)
         except Exception as e:
             iter_info['Error'] = str(e)
             print(f"    ✗ Error in Iteration {iteration+1}: {e}")
@@ -469,13 +456,13 @@ def run_condition(condition, scratch_base, project_base):
         print(f"  Creating NN training format...")
         nn_training_data = []
         
-        for iteration in range(1, ITERATIONS_PER_CONDITION + 1):
+        for iteration in sorted(combined_correlations['Iteration'].unique()):
             iter_data = combined_correlations[combined_correlations['Iteration'] == iteration]
             if len(iter_data) == 0:
                 continue
             
             row = {
-                'Iteration': iteration,
+                'Iteration': int(iteration),
                 'Condition': condition_name,
             }
             
@@ -485,11 +472,9 @@ def run_condition(condition, scratch_base, project_base):
             
             # Add correlations for each relationship-variable combination
             for _, corr_row in iter_data.iterrows():
-                col_name = f"cor_{corr_row['RelationshipPath']}_{corr_row['Variable']}"
+                col_name = f"{corr_row['RelationshipPath']}_{corr_row['Variable']}"
                 row[col_name] = corr_row['Correlation']
-                # Also add N_Pairs for reference
-                col_name_n = f"n_{corr_row['RelationshipPath']}_{corr_row['Variable']}"
-                row[col_name_n] = corr_row['N_Pairs']
+                row[f"{col_name}_N"] = corr_row['N_Pairs']
             
             nn_training_data.append(row)
         
@@ -499,10 +484,11 @@ def run_condition(condition, scratch_base, project_base):
             nn_training_df.to_csv(nn_training_file, index=False)
             print(f"  ✓ Saved NN training format to {nn_training_file}")
         
+        n_success = sum(1 for s in iteration_status if s['Status'] == 'Success')
+        print(f"\n  Summary: {n_success}/{ITERATIONS_PER_CONDITION} iterations successful")
         return True
     else:
         print(f"\n  ⚠ No correlations computed for {condition_name}")
-        print(f"  Check iteration_status.csv for details")
         return False
 
 # ============================================================================
@@ -510,13 +496,10 @@ def run_condition(condition, scratch_base, project_base):
 # ============================================================================
 
 def main():
-    """
-    Main execution function.
-    """
+    """Main execution function."""
     print("\n" + "="*70)
-    print("DATA GENERATION FOR NEURAL NETWORK TRAINING")
+    print("DATA GENERATION FOR NEURAL NETWORK TRAINING - COMBINED VERSION")
     print("="*70)
-    print(f"Scratch base: {SCRATCH_BASE}")
     print(f"Project base: {PROJECT_BASE}")
     print(f"SLURM Task ID: {SLURM_TASK_ID}")
     print(f"Population size: {POP_SIZE}")
@@ -537,7 +520,7 @@ def main():
         return
     
     # Run the condition
-    success = run_condition(condition, SCRATCH_BASE, PROJECT_BASE)
+    success = run_condition(condition, PROJECT_BASE)
     
     if success:
         print(f"\n{'='*70}")
@@ -550,4 +533,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

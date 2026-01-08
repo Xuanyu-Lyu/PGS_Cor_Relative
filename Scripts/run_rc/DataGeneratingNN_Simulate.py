@@ -36,7 +36,7 @@ PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGe
 SLURM_TASK_ID = int(os.environ.get('SLURM_ARRAY_TASK_ID', '1'))
 
 # Simulation parameters
-ITERATIONS_PER_CONDITION = 10  # Number of iterations per condition
+ITERATIONS_PER_CONDITION = 30  # Number of iterations per condition
 POP_SIZE = 40000
 N_GENERATIONS = 15
 FINAL_GENS = [12, 13, 14]  # Final 3 generations to analyze
