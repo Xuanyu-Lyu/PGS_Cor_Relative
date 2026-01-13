@@ -251,9 +251,9 @@ def extract_and_analyze_relationships(results, iteration):
     
     for rel_path in RELATIONSHIP_TYPES:
         try:
-            # Note: We analyze the final 3 generations (indices correspond to FINAL_GENS)
-            # Map generation indices: gen 12->0, gen 13->1, gen 14->2 in the trimmed results
-            gen_indices = [i for i, g in enumerate(range(N_GENERATIONS)) if g in FINAL_GENS]
+            # Note: trimmed_results only contains the final 3 generations
+            # They are now indexed as 0, 1, 2 (corresponding to original gens 12, 13, 14)
+            gen_indices = [0, 1, 2]
             
             pairs = find_relationship_pairs(
                 results, rel_path,
