@@ -264,6 +264,9 @@ def extract_and_analyze_relationships(results, iteration):
             if len(pairs) == 0:
                 continue
             
+            # Rename columns to expected format (Person_ID -> ID1, Relative_ID -> ID2)
+            pairs = pairs.rename(columns={'Person_ID': 'ID1', 'Relative_ID': 'ID2'})
+            
             # Add measures for pairs
             pairs_with_measures = pairs.copy()
             
