@@ -233,10 +233,11 @@ def extract_and_analyze_relationships(results, iteration):
     Returns DataFrame with correlation results for all relationship types.
     """
     # Extract measures for all individuals
-    variables = ['Y1', 'Y2', 'TPO1', 'TPO2', 'TMO1', 'TMO2']
+    # We'll extract component measures and compute PGS from them
+    component_vars = ['Y1', 'Y2', 'TPO1', 'TPO2', 'TMO1', 'TMO2']
     
     try:
-        individual_measures = extract_individual_measures(results, variables)
+        individual_measures = extract_individual_measures(results, component_vars)
         individual_measures = compute_pgs_from_components(individual_measures)
     except Exception as e:
         print(f"    ✗ Error extracting measures: {e}")
@@ -270,20 +271,15 @@ def extract_and_analyze_relationships(results, iteration):
             # Add measures for pairs
             pairs_with_measures = pairs.copy()
             
-            for var in variables:
-                pairs_with_measures[f'{var}_ID1'] = pairs['ID1'].map(
-                    lambda x: measures_lookup.get(x, {}).get(var, np.nan)
-                )
-                pairs_with_measures[f'{var}_ID2'] = pairs['ID2'].map(
-                    lambda x: measures_lookup.get(x, {}).get(var, np.nan)
-                )
+            # Note: compute_correlations_for_multiple_variables expects columns named {var}_1 and {var}_2
+            # We need to add all variables we want to compute correlations for
+            all_vars_to_add = ['PGS1', 'PGS2', 'Y1', 'Y2']
             
-            # Add PGS1 and PGS2
-            for var in ['PGS1', 'PGS2']:
-                pairs_with_measures[f'{var}_ID1'] = pairs['ID1'].map(
+            for var in all_vars_to_add:
+                pairs_with_measures[f'{var}_1'] = pairs['ID1'].map(
                     lambda x: measures_lookup.get(x, {}).get(var, np.nan)
                 )
-                pairs_with_measures[f'{var}_ID2'] = pairs['ID2'].map(
+                pairs_with_measures[f'{var}_2'] = pairs['ID2'].map(
                     lambda x: measures_lookup.get(x, {}).get(var, np.nan)
                 )
             
@@ -346,12 +342,16 @@ def run_single_iteration(iteration, condition_name, params, matrices):
     results = sim.run_simulation()
     
     # Trim results to only keep final generations to save memory
+    # Note: MATES has offset indexing - MATES[i+1] contains mates FROM generation i
+    # For FINAL_GENS = [12, 13, 14], we need MATES[12], [13], [14], and [15] (for mating in gen 14)
+    mates_indices = FINAL_GENS + [FINAL_GENS[-1] + 1] if FINAL_GENS[-1] + 1 < len(results['HISTORY']['MATES']) else FINAL_GENS
+    
     trimmed_results = {
         'HISTORY': {
             'PHEN': [results['HISTORY']['PHEN'][i] for i in FINAL_GENS],
             'XO': [results['HISTORY']['XO'][i] for i in FINAL_GENS],
             'XL': [results['HISTORY']['XL'][i] for i in FINAL_GENS],
-            'MATES': [results['HISTORY']['MATES'][i] for i in FINAL_GENS]
+            'MATES': [results['HISTORY']['MATES'][i] if i < len(results['HISTORY']['MATES']) else None for i in mates_indices]
         }
     }
     
