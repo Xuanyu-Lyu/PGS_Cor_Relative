@@ -34,7 +34,7 @@ conda activate /projects/xuly4739/general_env
 
 # Run combine script with train/test split
 echo "Combining all condition data..."
-python -u CombineNN_Data.py --split --test_size 0.2
+python -u CombineNN_Data_Large.py --split --test_size 0.2
 
 if [ $? -eq 0 ]; then
     echo ""
