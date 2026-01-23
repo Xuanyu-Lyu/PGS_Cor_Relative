@@ -16,7 +16,6 @@ import numpy as np
 import pandas as pd
 import argparse
 from pathlib import Path
-from sklearn.model_selection import train_test_split
 
 # ============================================================================
 # CONFIGURATION
@@ -115,10 +114,15 @@ def create_train_test_split(df, test_size=0.2, random_state=42):
     conditions = df['Condition'].unique()
     print(f"  Total conditions: {len(conditions)}")
     
-    # Split conditions
-    train_conditions, test_conditions = train_test_split(
-        conditions, test_size=test_size, random_state=random_state
-    )
+    # Split conditions using numpy
+    np.random.seed(random_state)
+    n_test = int(len(conditions) * test_size)
+    n_train = len(conditions) - n_test
+    
+    # Shuffle and split
+    shuffled_conditions = np.random.permutation(conditions)
+    test_conditions = shuffled_conditions[:n_test]
+    train_conditions = shuffled_conditions[n_test:]
     
     print(f"  Train conditions: {len(train_conditions)}")
     print(f"  Test conditions: {len(test_conditions)}")
