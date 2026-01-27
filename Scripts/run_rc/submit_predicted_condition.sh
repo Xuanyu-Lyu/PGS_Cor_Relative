@@ -29,9 +29,7 @@ conda activate /projects/xuly4739/general_env
 # Run simulation script
 echo "Starting predicted condition simulation..."
 echo "Parameters from neural network prediction:"
-echo "  f11=0.1126, vg1=0.5941, prop_h2_latent1=0.8527"
-echo "  f22=0.1624, vg2=0.7532"
-echo "  rg=0.7447, am22=0.5968"
+echo "  f11: 0.1331 prop_h2_latent1: 0.7278 vg1: 0.5948 vg2: 0.6569 f22: 0.0794 am22: 0.6573 rg: 0.6683"
 echo ""
 python -u run_predicted_condition_rc.py
 

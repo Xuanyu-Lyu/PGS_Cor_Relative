@@ -24,12 +24,12 @@ from extract_measures import extract_individual_measures, compute_correlations_f
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition400")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition400")
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_large")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_large")
 
 # Predicted condition from neural network
 CONDITION = {
-    'name': 'Predicted_Condition400',
+    'name': 'Predicted_Condition_large',
     'f11': 0.1331,
     'prop_h2_latent1': 0.7278,
     'vg1': 0.5948,
@@ -48,7 +48,7 @@ CONDITION = {
 }
 
 # Simulation parameters
-TOTAL_ITERATIONS = 100
+TOTAL_ITERATIONS = 50
 POP_SIZE = 40000
 N_GENERATIONS = 15  # Total generations (will save last 3)
 FINAL_GENS = [12, 13, 14]  # Final 3 generations to analyze
