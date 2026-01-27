@@ -30,13 +30,13 @@ PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predic
 # Predicted condition from neural network
 CONDITION = {
     'name': 'Predicted_Condition400',
-    'f11': 0.1367,
-    'prop_h2_latent1': 0.7648,
-    'vg1': 0.5678,
-    'vg2': 0.6214,
-    'f22': 0.1334,
-    'am22': 0.5917,
-    'rg': 0.7354,
+    'f11': 0.1331,
+    'prop_h2_latent1': 0.7278,
+    'vg1': 0.5948,
+    'vg2': 0.6569,
+    'f22': 0.0794,
+    'am22': 0.6573,
+    'rg': 0.6683,
     # Fixed cross-trait parameters
     'am11': 0,
     'am12': 0,
@@ -48,7 +48,7 @@ CONDITION = {
 }
 
 # Simulation parameters
-TOTAL_ITERATIONS = 50
+TOTAL_ITERATIONS = 100
 POP_SIZE = 40000
 N_GENERATIONS = 15  # Total generations (will save last 3)
 FINAL_GENS = [12, 13, 14]  # Final 3 generations to analyze

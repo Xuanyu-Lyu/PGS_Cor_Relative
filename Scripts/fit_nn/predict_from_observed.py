@@ -79,9 +79,16 @@ def prepare_correlation_input(correlations_dict, expected_features):
     
     for i, feature_name in enumerate(expected_features):
         # Extract relationship type from feature name
-        # Feature names are like "cor_S_PGS1"
-        if feature_name.startswith('cor_') and '_PGS1' in feature_name:
-            rel_type = feature_name.replace('cor_', '').replace('_PGS1', '')
+        # Handle two naming conventions:
+        # 1. "cor_S_PGS1" -> "S"
+        # 2. "S_PGS1" -> "S"
+        
+        if '_PGS1' in feature_name:
+            # Remove _PGS1 suffix
+            rel_type = feature_name.replace('_PGS1', '')
+            # Remove cor_ prefix if present
+            if rel_type.startswith('cor_'):
+                rel_type = rel_type.replace('cor_', '')
             
             if rel_type in correlations_dict:
                 X[i] = correlations_dict[rel_type]
@@ -99,12 +106,16 @@ def prepare_correlation_input(correlations_dict, expected_features):
     return X.reshape(1, -1)  # Reshape to (1, n_features) for single prediction
 
 def predict_parameters(model, feature_scaler, target_scaler, poly_transformer, 
-                      X, device):
+                      X, device, config=None):
     """Make prediction and inverse transform to original scale."""
     
     # Apply polynomial transformation if needed
-    if poly_transformer is not None:
-        X = poly_transformer.transform(X)
+    # Only apply if degree > 1 (degree=1 means no interactions)
+    if poly_transformer is not None and config is not None:
+        interaction_degree = config.get('interaction_degree', 2)
+        if interaction_degree > 1:
+            X = poly_transformer.transform(X)
+            print(f"  Applied polynomial features: {X.shape[1]} features")
     
     # Normalize features
     X_normalized = feature_scaler.transform(X)
@@ -253,7 +264,7 @@ def main():
     # Make prediction
     print("\nMaking prediction...")
     predictions = predict_parameters(
-        model, feature_scaler, target_scaler, poly_transformer, X, device
+        model, feature_scaler, target_scaler, poly_transformer, X, device, config
     )
     
     # Display results

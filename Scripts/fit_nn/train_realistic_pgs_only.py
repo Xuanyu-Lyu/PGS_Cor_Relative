@@ -8,9 +8,8 @@ Improvements for when only PGS correlations are available:
 4. Uncertainty quantification
 
 Usage:
-    python train_realistic_pgs_only.py --data nn_training_combined.csv --device cpu
+    python train_realistic_pgs_only.py --data nn_training_combined_large.csv --device cpu --interaction_degree 1 --epochs 1000
 """
-
 import numpy as np
 import pandas as pd
 import torch
@@ -23,7 +22,6 @@ import joblib
 import json
 
 from fit_nn import CorrelationDataset, PARAM_NAMES
-from train_pgs1_only import load_and_clean_data
 from sklearn.preprocessing import StandardScaler, PolynomialFeatures
 from sklearn.metrics import r2_score, mean_squared_error
 
@@ -32,6 +30,89 @@ import matplotlib.pyplot as plt
 # ============================================================================
 # FEATURE ENGINEERING
 # ============================================================================
+
+
+def load_and_clean_data(data_path, missing_threshold=0.95):
+    """
+    Load data and perform initial cleaning.
+    
+    Args:
+        data_path: Path to the CSV file
+        missing_threshold: Maximum proportion of missing correlations allowed (default: 0.95)
+        
+    Returns:
+        df: Cleaned DataFrame
+    """
+    print("\n" + "="*70)
+    print("LOADING AND CLEANING DATA")
+    print("="*70)
+    
+    # Load data
+    print(f"\nLoading data from: {data_path}")
+    df = pd.read_csv(data_path)
+    print(f"✓ Loaded {len(df)} samples with {len(df.columns)} columns")
+    
+    # Show initial data quality
+    initial_samples = len(df)
+    
+    # 1. Remove rows with too many missing values
+    cor_cols = [col for col in df.columns if col.startswith('cor_')]
+    
+    if len(cor_cols) == 0:
+        print("\n⚠ Warning: No correlation columns found!")
+        return df
+    
+    missing_per_row = df[cor_cols].isnull().sum(axis=1) / len(cor_cols)
+    
+    # Show distribution of missing data
+    print(f"\nMissing data distribution:")
+    print(f"  Min: {missing_per_row.min():.1%}")
+    print(f"  Mean: {missing_per_row.mean():.1%}")
+    print(f"  Median: {missing_per_row.median():.1%}")
+    print(f"  Max: {missing_per_row.max():.1%}")
+    
+    # Apply threshold
+    df = df[missing_per_row < missing_threshold].copy()
+    print(f"\n✓ Removed {initial_samples - len(df)} rows with >{missing_threshold:.0%} missing correlations")
+    print(f"  Remaining: {len(df)} samples")
+    
+    if len(df) == 0:
+        print("\n✗ ERROR: All rows removed during cleaning!")
+        print("  Try adjusting --missing_threshold parameter")
+        return df
+    
+    # 2. Remove duplicate rows based on parameters and iteration
+    param_cols = [col for col in df.columns if col.startswith('param_')]
+    if 'Condition' in df.columns:
+        dedup_cols = param_cols + ['Condition', 'Iteration']
+    else:
+        dedup_cols = param_cols + ['Iteration']
+    
+    before_dedup = len(df)
+    df = df.drop_duplicates(subset=dedup_cols, keep='first')
+    print(f"✓ Removed {before_dedup - len(df)} duplicate rows")
+    print(f"  Remaining: {len(df)} samples")
+    
+    # 3. Check for extreme outliers in correlations (abs > 1.5, which shouldn't exist)
+    outlier_mask = (df[cor_cols].abs() > 1.5).any(axis=1)
+    n_outliers = outlier_mask.sum()
+    if n_outliers > 0:
+        print(f"⚠ Warning: Found {n_outliers} rows with impossible correlation values (|r| > 1.5)")
+        df = df[~outlier_mask].copy()
+        print(f"  Removed these outliers. Remaining: {len(df)} samples")
+    
+    # 4. Summary statistics
+    print(f"\n{'='*70}")
+    print("DATA QUALITY SUMMARY")
+    print(f"{'='*70}")
+    print(f"Final sample size: {len(df)}")
+    print(f"\nMissing values per column (top 10):")
+    missing = df[cor_cols].isnull().sum().sort_values(ascending=False).head(10)
+    for col, count in missing.items():
+        pct = (count / len(df)) * 100
+        print(f"  {col}: {count} ({pct:.1f}%)")
+    
+    return df
 
 def engineer_features(df, feature_cols, interaction_degree=2):
     """
@@ -310,6 +391,8 @@ def main():
                        help='Polynomial degree for feature interactions (1=no interactions, 2=pairwise)')
     parser.add_argument('--analyze_predictability', action='store_true',
                        help='Run predictability analysis before training')
+    parser.add_argument('--missing_threshold', type=float, default=0.95,
+                       help='Maximum proportion of missing correlations allowed (default: 0.95)')
     parser.add_argument('--device', type=str, default='auto')
     
     args = parser.parse_args()
@@ -331,10 +414,21 @@ def main():
     print(f"\nUsing device: {device}")
     
     # Load data
-    df = load_and_clean_data(args.data)
+    df = load_and_clean_data(args.data, missing_threshold=args.missing_threshold)
     
-    # Get PGS1 features
+    if len(df) == 0:
+        print("\n✗ No data available after cleaning. Exiting.")
+        return
+    
+    # Get PGS1 features - check for both naming conventions
     pgs1_cols = [col for col in df.columns if 'cor_' in col and '_PGS1' in col]
+    
+    # If no 'cor_' prefix columns, look for columns ending with _PGS1 (but not _N suffix)
+    if len(pgs1_cols) == 0:
+        pgs1_cols = [col for col in df.columns 
+                     if '_PGS1' in col and not col.endswith('_N') 
+                     and not col.startswith('param_')]
+    
     print(f"\nFound {len(pgs1_cols)} PGS1 correlation features")
     
     # Predictability analysis
