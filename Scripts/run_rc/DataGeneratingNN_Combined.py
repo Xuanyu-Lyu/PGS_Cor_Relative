@@ -30,7 +30,7 @@ from extract_measures import extract_individual_measures, compute_correlations_f
 # ============================================================================
 
 # Directory setup - using a new directory for this combined approach
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN_Large")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN_Relaxed_f_250203")
 
 # Get SLURM array task ID
 SLURM_TASK_ID = int(os.environ.get('SLURM_ARRAY_TASK_ID', '1'))
