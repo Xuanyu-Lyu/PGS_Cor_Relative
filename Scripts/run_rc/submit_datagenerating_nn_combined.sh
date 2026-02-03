@@ -11,9 +11,9 @@
 #SBATCH --output=slurm_logs/nn_combined_%A_%a.out
 #SBATCH --error=slurm_logs/nn_combined_%A_%a.err
 
-# Array for 400 different parameter conditions
+# Array for 500 different parameter conditions
 # Run up to 50 jobs in parallel to manage cluster resources
-#SBATCH --array=1-400%50
+#SBATCH --array=1-500%50
 
 # --- Job Configuration ---
 mkdir -p slurm_logs
