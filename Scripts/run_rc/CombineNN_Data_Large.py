@@ -21,7 +21,7 @@ from pathlib import Path
 # CONFIGURATION
 # ============================================================================
 
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN_Large")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN_Relaxed_f_250203")
 
 # ============================================================================
 # MAIN FUNCTIONS
