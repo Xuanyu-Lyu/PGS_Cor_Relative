@@ -439,7 +439,7 @@ def run_condition(condition, project_base):
         combined_correlations = pd.concat(all_correlations, ignore_index=True)
         
         # Add parameter values to each row for NN training
-        for param in ['f11', 'prop_h2_latent1', 'vg1', 'vg2', 'f22', 'am22', 'rg']:
+        for param in PARAM_RANGES.keys():
             combined_correlations[f'param_{param}'] = condition[param]
         
         # Save detailed correlations with all iterations
@@ -473,7 +473,7 @@ def run_condition(condition, project_base):
             }
             
             # Add parameters
-            for param in ['f11', 'prop_h2_latent1', 'vg1', 'vg2', 'f22', 'am22', 'rg']:
+            for param in PARAM_RANGES.keys():
                 row[f'param_{param}'] = condition[param]
             
             # Add correlations for each relationship-variable combination
