@@ -24,19 +24,19 @@ from extract_measures import extract_individual_measures, compute_correlations_f
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_large")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_large")
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_pgs_and_4pheno")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_pgs_and_4pheno")
 
 # Predicted condition from neural network
 CONDITION = {
-    'name': 'Predicted_Condition_large',
-    'f11': 0.1331,
-    'prop_h2_latent1': 0.7278,
-    'vg1': 0.5948,
-    'vg2': 0.6569,
-    'f22': 0.0794,
-    'am22': 0.6573,
-    'rg': 0.6683,
+    'name': 'Predicted_Condition_pgs_and_4pheno',
+    'f11': -0.0005,
+    'prop_h2_latent1': 0.7819,
+    'vg1': 0.5522,
+    'vg2': 0.5850,
+    'f22': 0.0422,
+    'am22': 0.6689,
+    'rg': 0.9020,
     # Fixed cross-trait parameters
     'am11': 0,
     'am12': 0,
@@ -48,7 +48,7 @@ CONDITION = {
 }
 
 # Simulation parameters
-TOTAL_ITERATIONS = 50
+TOTAL_ITERATIONS = 100  # Total iterations across all array tasks
 POP_SIZE = 40000
 N_GENERATIONS = 15  # Total generations (will save last 3)
 FINAL_GENS = [12, 13, 14]  # Final 3 generations to analyze
@@ -153,7 +153,7 @@ def run_single_iteration(iteration, condition_name, params, matrices, scratch_di
     Run a single simulation iteration.
     """
     print(f"\n{'='*60}")
-    print(f"Running {condition_name} - Iteration {iteration + 1}/{TOTAL_ITERATIONS}")
+    print(f"Running {condition_name} - Iteration {iteration + 1}")
     print(f"{'='*60}")
     
     # Set seed for reproducibility
@@ -369,15 +369,25 @@ def extract_pgs_correlations(results):
 
 def run_predicted_condition(condition, scratch_base, project_base):
     """
-    Run all iterations for the predicted condition.
+    Run iterations for the predicted condition assigned to this array task.
     """
     condition_name = condition['name']
+    
+    # Get task-specific iteration range from environment variables
+    task_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', '1'))
+    iterations_per_task = int(os.environ.get('ITERATIONS_PER_TASK', '5'))
+    
+    start_iter = (task_id - 1) * iterations_per_task
+    end_iter = min(task_id * iterations_per_task, TOTAL_ITERATIONS)
+    n_iterations = end_iter - start_iter
+    
     print(f"\n{'#'*70}")
     print(f"# Starting simulations: {condition_name}")
     print(f"# Bivariate model with parameters from neural network prediction")
     print(f"# f11={condition['f11']:.4f}, vg1={condition['vg1']:.4f}, prop_h2_latent1={condition['prop_h2_latent1']:.4f}")
     print(f"# f22={condition['f22']:.4f}, vg2={condition['vg2']:.4f}, am22={condition['am22']:.4f}, rg={condition['rg']:.4f}")
-    print(f"# Running {TOTAL_ITERATIONS} iterations")
+    print(f"# Array Task {task_id}: Running iterations {start_iter+1} to {end_iter}")
+    print(f"# ({n_iterations} iterations in this task)")
     print(f"{'#'*70}\n")
     
     # Create condition-specific directories
@@ -394,8 +404,8 @@ def run_predicted_condition(condition, scratch_base, project_base):
     pgs_cor_trait2 = []
     all_correlations = []
     
-    # Run iterations
-    for iteration in range(TOTAL_ITERATIONS):
+    # Run iterations for this task
+    for iteration in range(start_iter, end_iter):
         try:
             # Run simulation
             results = run_single_iteration(iteration, condition_name, condition, matrices.copy(), scratch_dir)
@@ -433,45 +443,45 @@ def run_predicted_condition(condition, scratch_base, project_base):
             traceback.print_exc()
             continue
     
-    # Save summary statistics to PROJECT directory
+    # Save summary statistics to PROJECT directory (task-specific)
     # Save mate PGS correlations for both traits
     if pgs_cor_trait1:
         mate_summary = pd.DataFrame({
-            'iteration': range(1, len(pgs_cor_trait1) + 1),
+            'iteration': range(start_iter + 1, end_iter + 1),  # Global iteration numbers
             'mate_pgs_correlation_trait1': pgs_cor_trait1,
             'mate_pgs_correlation_trait2': pgs_cor_trait2
         })
-        mate_file = project_dir / 'mate_pgs_correlations_summary.csv'
+        mate_file = project_dir / f'mate_pgs_correlations_task_{task_id:02d}.csv'
         mate_summary.to_csv(mate_file, index=False)
         print(f"\n  ✓ Saved mate correlation summary to {mate_file.name}")
         print(f"    Trait 1 - Mean: {np.mean(pgs_cor_trait1):.4f}, SD: {np.std(pgs_cor_trait1):.4f}")
         print(f"    Trait 2 - Mean: {np.mean(pgs_cor_trait2):.4f}, SD: {np.std(pgs_cor_trait2):.4f}")
     
-    # Combine and save relationship correlations
+    # Combine and save relationship correlations (task-specific)
     if all_correlations:
-        print(f"\n  Combining relationship correlations across all iterations...")
+        print(f"\n  Combining relationship correlations for this task...")
         combined_correlations = pd.concat(all_correlations, ignore_index=True)
         
-        # Save combined results
-        combined_file = project_dir / "all_iterations_correlations.csv"
+        # Save task-specific combined results
+        combined_file = project_dir / f"task_{task_id:02d}_correlations.csv"
         combined_correlations.to_csv(combined_file, index=False)
-        print(f"  ✓ Saved combined correlations to {combined_file.name}")
+        print(f"  ✓ Saved task correlations to {combined_file.name}")
         
-        # Create summary statistics by relationship type
-        print(f"\n  Computing summary statistics by relationship type...")
+        # Create summary statistics by relationship type for this task
+        print(f"\n  Computing summary statistics by relationship type for this task...")
         summary = combined_correlations.groupby(['RelationshipPath', 'Variable']).agg({
             'Correlation': ['mean', 'std', 'min', 'max'],
             'N_Pairs': 'sum',
             'Iteration': 'count'
         }).round(4)
         
-        # Save summary
-        summary_file = project_dir / "relationship_summary_statistics.csv"
+        # Save task-specific summary
+        summary_file = project_dir / f"task_{task_id:02d}_summary_statistics.csv"
         summary.to_csv(summary_file)
-        print(f"  ✓ Saved relationship summary statistics to {summary_file.name}")
+        print(f"  ✓ Saved task summary statistics to {summary_file.name}")
         
         # Print summary for PGS1
-        print(f"\n  Summary for PGS1 correlations:")
+        print(f"\n  Summary for PGS1 correlations (this task):")
         pgs1_summary = combined_correlations[combined_correlations['Variable'] == 'PGS1'].groupby('RelationshipPath').agg({
             'Correlation': ['mean', 'std'],
             'N_Pairs': 'mean'

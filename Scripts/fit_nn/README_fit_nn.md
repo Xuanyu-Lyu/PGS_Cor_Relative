@@ -1,328 +1,142 @@
 # Neural Network Training for Parameter Prediction
 
-This directory contains PyTorch-based neural network models to predict simulation parameters from relative PGS correlations.
+Predict simulation parameters from relative correlations between kin types using PyTorch neural networks.
 
-## Overview
+## Target Parameters
 
-The neural network takes correlation values (from siblings, cousins, in-laws, etc.) as input and predicts the 7 parameters that generated those correlations:
-- `f11`: Vertical transmission for trait 1
-- `prop_h2_latent1`: Proportion of h² that's latent for trait 1
-- `vg1`: Genetic variance for trait 1
-- `vg2`: Genetic variance for trait 2
-- `f22`: Vertical transmission for trait 2
-- `am22`: Assortative mating coefficient for trait 2
-- `rg`: Genetic correlation between traits
+| Parameter | Description |
+|-----------|-------------|
+| `f11` | Vertical transmission (trait 1) |
+| `prop_h2_latent1` | Proportion of h² that's latent (trait 1) |
+| `vg1` | Genetic variance (trait 1) |
+| `vg2` | Genetic variance (trait 2) |
+| `f22` | Vertical transmission (trait 2) |
+| `am22` | Assortative mating coefficient (trait 2) |
+| `rg` | Genetic correlation between traits |
+
+## Two Model Variants
+
+1. **PGS-only**: Uses `cor_*_PGS1` features only
+2. **PGS + Phenotypic**: Uses both `cor_*_PGS1` and `cor_*_Y1` features
 
 ## Files
 
-- **`fit_nn.py`**: Main training script
-- **`predict.py`**: Prediction script for using trained models
-- **`README_fit_nn.md`**: This documentation
+| File | Purpose |
+|------|---------|
+| `fit_nn.py` | Shared utilities (`PARAM_NAMES`, `CorrelationDataset`, `evaluate_model`, `plot_predictions`, `plot_residuals`) |
+| `train_realistic_pgs_only.py` | Train PGS-only model |
+| `predict_from_observed.py` | Predict from PGS-only model |
+| `train_realistic_pgs_and_pheno.py` | Train PGS + phenotypic model |
+| `predict_from_observed_pgs_and_pheno.py` | Predict from PGS + phenotypic model |
+| `run_prediction.sh` | Shell script to run predictions |
 
 ## Requirements
 
 ```bash
-pip install torch pandas numpy matplotlib seaborn scikit-learn joblib
+pip install torch pandas numpy matplotlib scikit-learn joblib
 ```
-
-Or use your existing conda environment:
-```bash
-conda activate /projects/xuly4739/general_env
-```
-
-## Model Architecture
-
-**ParameterPredictor** - Fully connected neural network:
-- Input layer: ~40-50 features (correlation values)
-- Hidden layers: [256, 128, 64] neurons (configurable)
-- Activation: ReLU
-- Regularization: BatchNorm + Dropout (0.3)
-- Output layer: 7 parameters
-- Loss function: MSE (Mean Squared Error)
-- Optimizer: Adam with learning rate scheduling
 
 ## Training
 
-### Basic Usage
+Both training scripts share the same CLI interface:
 
 ```bash
-python fit_nn.py --data path/to/nn_training_data.csv
+# PGS-only
+python train_realistic_pgs_only.py \
+    --data nn_training_combined400.csv \
+    --output ./results_pgs_only \
+    --interaction_degree 2 --epochs 3000 --device cpu
+
+# PGS + Phenotypic
+python train_realistic_pgs_and_pheno.py \
+    --data nn_training_combined_large.csv \
+    --output ./results_pgs_and_pheno \
+    --interaction_degree 1 --epochs 1500 --device cpu
 ```
 
-### Advanced Options
+### Key Arguments
 
-```bash
-python fit_nn.py \
-    --data /projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN/combined/nn_training_data.csv \
-    --output results/ \
-    --epochs 500 \
-    --batch_size 32 \
-    --lr 0.001 \
-    --weight_decay 1e-5 \
-    --hidden_sizes 256 128 64 \
-    --dropout 0.3 \
-    --device auto
-```
-
-### Parameters
-
-- `--data`: Path to training data CSV (required)
-- `--output`: Output directory for results (default: `results/`)
-- `--epochs`: Maximum training epochs (default: 500)
-- `--batch_size`: Batch size (default: 32)
-- `--lr`: Learning rate (default: 0.001)
-- `--weight_decay`: L2 regularization (default: 1e-5)
-- `--hidden_sizes`: Hidden layer sizes (default: 256 128 64)
-- `--dropout`: Dropout rate (default: 0.3)
-- `--device`: Device to use - auto/cpu/cuda/mps (default: auto)
-
-## Training Features
-
-### Data Preprocessing
-- Train/validation/test split: 70%/15%/15%
-- Feature normalization (StandardScaler)
-- Target normalization for training stability
-- Missing value imputation
-
-### Training Enhancements
-- Learning rate scheduling (ReduceLROnPlateau)
-- Early stopping (patience=50 epochs)
-- Model checkpointing (saves best model)
-- Progress monitoring
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--data` | (required) | Training CSV path |
+| `--output` | `results_realistic_pgs` / `results_pgs_and_pheno` | Output directory |
+| `--epochs` | 1000 | Max training epochs |
+| `--batch_size` | 32 | Batch size |
+| `--lr` | 0.001 | Learning rate |
+| `--hidden_sizes` | 256 256 128 128 | Hidden layer sizes |
+| `--dropout` | 0.4 | Dropout rate |
+| `--interaction_degree` | 2 | Polynomial degree (1 = no interactions) |
+| `--device` | auto | `cpu`, `cuda`, or `mps` |
 
 ### Output Files
 
-After training, the following files are saved to the output directory:
-
 ```
 results/
-├── best_model.pt                    # Trained model weights
-├── feature_scaler.pkl              # Feature normalization scaler
-├── target_scaler.pkl               # Target normalization scaler
-├── config.json                     # Training configuration
-├── model_architecture.txt          # Model architecture summary
-├── test_metrics.json               # Detailed test metrics
-├── training_history.png            # Loss curves
-├── predictions_vs_true.png         # All parameters overview
-├── residuals.png                   # Residual plots
-└── prediction_{param}.png          # Individual parameter plots (7 files)
+├── best_model.pt              # Model weights
+├── feature_scaler.pkl         # Feature scaler
+├── target_scaler.pkl          # Target scaler
+├── poly_transformer.pkl       # Polynomial transformer (if degree > 1)
+├── config.json                # Training config
+├── test_metrics.json          # Test set metrics
+├── training_history.png       # Loss curves
+├── predictions_vs_true.png    # Overview plot
+├── residuals.png              # Residual plots
+└── prediction_{param}.png     # Per-parameter plots
 ```
 
-## Making Predictions
+## Prediction
 
-Use the trained model to predict parameters from new correlation data:
+### PGS-only
 
 ```bash
-python predict.py \
-    --model results/best_model.pt \
-    --scalers_dir results/ \
-    --data new_correlations.csv \
-    --output predictions.csv
+python predict_from_observed.py \
+    --model_dir results_pgs_only \
+    --correlations observed_correlations.csv
 ```
 
-### Input Data Format
+### PGS + Phenotypic
 
-The input CSV should have the same correlation columns as the training data:
-- Column names: `{RelationshipType}_{Variable}_cor`
-- Example: `S_PGS1_cor`, `PPSCC_PGS2_cor`, `M_Y1_cor`
-- Variables: PGS1, PGS2, Y1, Y2
-- Relationships: S, PSC, PPSCC, M, MS, SMS, MSC, MSM, SMSC, SMSM, SMSMS
+```bash
+python predict_from_observed_pgs_and_pheno.py \
+    --model_dir results_pgs_and_pheno \
+    --correlations_pgs observed_correlations_PGS.csv \
+    --correlations_pheno observed_correlations_pheno.csv
+```
 
-### Output Format
+Or: `bash run_prediction.sh`
 
-The output CSV contains predicted values for all 7 parameters:
+### Observed Correlation CSV Format
+
+Both files need columns `RelType` and `Correlation`:
+
 ```csv
-f11,prop_h2_latent1,vg1,vg2,f22,am22,rg
-0.1234,0.7890,0.6543,0.8765,0.2109,0.5432,0.7654
-```
-
-## Example Workflow
-
-### 1. Train Model
-
-```bash
-cd /projects/xuly4739/Py_Projects/PGS_Cor_Relative/Scripts/fit_nn
-
-python fit_nn.py \
-    --data /projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN/combined/nn_training_data.csv \
-    --output results_v1/ \
-    --epochs 500
-```
-
-**Expected output:**
-- Training completes in ~20-30 minutes on GPU
-- Best validation loss: ~0.01-0.05 (normalized scale)
-- Test R² scores: typically 0.85-0.95 for most parameters
-
-### 2. Evaluate Results
-
-Check the generated plots:
-```bash
-open results_v1/predictions_vs_true.png
-open results_v1/training_history.png
-```
-
-Review metrics:
-```bash
-cat results_v1/test_metrics.json
-```
-
-### 3. Make Predictions
-
-```bash
-python predict.py \
-    --model results_v1/best_model.pt \
-    --scalers_dir results_v1/ \
-    --data /path/to/new/correlation/data.csv \
-    --output predicted_parameters.csv
-```
-
-## Performance Optimization
-
-### GPU Training
-
-The script automatically detects and uses available GPUs. To force CPU/GPU:
-```bash
-# Force CPU
-python fit_nn.py --device cpu ...
-
-# Force CUDA GPU
-python fit_nn.py --device cuda ...
-
-# Force Apple Silicon GPU
-python fit_nn.py --device mps ...
-```
-
-### Hyperparameter Tuning
-
-Experiment with different architectures:
-```bash
-# Deeper network
-python fit_nn.py --hidden_sizes 512 256 128 64 ...
-
-# Less regularization
-python fit_nn.py --dropout 0.2 --weight_decay 1e-6 ...
-
-# Higher learning rate
-python fit_nn.py --lr 0.005 ...
-```
-
-## Monitoring Training
-
-Monitor training progress in real-time:
-```bash
-tail -f results/training_log.txt  # if logging enabled
-```
-
-Or check validation loss periodically:
-```bash
-# Training prints every 10 epochs
-Epoch    Train Loss      Val Loss        Best Val       
-----------------------------------------------------------------------
-10       0.234567        0.123456        0.123456       
-20       0.123456        0.098765        0.098765       
+RelType,Correlation
+S,0.559
+M,0.135
+MS,0.096
 ...
 ```
 
 ## Troubleshooting
 
-### Out of Memory Errors
+- **Out of memory**: reduce `--batch_size`
+- **Overfitting**: increase `--dropout` or `--weight_decay`
+- **NaN loss**: reduce `--lr`
+- **Poor R²**: try different `--interaction_degree` or `--hidden_sizes`
 
-Reduce batch size:
+### PGS-only model
 ```bash
-python fit_nn.py --batch_size 16 ...
-```
-
-### Overfitting
-
-Increase regularization:
-```bash
-python fit_nn.py --dropout 0.4 --weight_decay 1e-4 ...
-```
-
-### Poor Performance
-
-- Check data quality (missing values, outliers)
-- Try different architectures
-- Increase training epochs
-- Adjust learning rate
-
-### NaN Loss
-
-- Reduce learning rate
-- Check for extreme values in data
-- Ensure proper normalization
-
-## Expected Performance
-
-With 2,000 training samples (200 conditions × 10 iterations):
-
-| Parameter | Expected R² | Expected RMSE |
-|-----------|-------------|---------------|
-| f11 | 0.90-0.95 | 0.01-0.02 |
-| prop_h2_latent1 | 0.85-0.92 | 0.03-0.05 |
-| vg1 | 0.88-0.94 | 0.02-0.04 |
-| vg2 | 0.87-0.93 | 0.03-0.05 |
-| f22 | 0.91-0.96 | 0.01-0.02 |
-| am22 | 0.92-0.97 | 0.01-0.02 |
-| rg | 0.89-0.95 | 0.02-0.03 |
-| **Overall** | **0.90-0.94** | **0.02-0.03** |
-
-*Note: Performance depends on data quality, parameter ranges, and model architecture.*
-
-## Citation
-
-If you use this neural network approach in your research, please cite:
-- PyTorch framework
-- Your simulation methods paper
-- This repository/project
-
-## Advanced Usage
-
-### Cross-Validation
-
-For more robust evaluation, implement k-fold cross-validation:
-```python
-from sklearn.model_selection import KFold
-
-kf = KFold(n_splits=5, shuffle=True, random_state=42)
-for fold, (train_idx, val_idx) in enumerate(kf.split(X)):
-    # Train model on each fold
-    ...
-```
-
-### Ensemble Models
-
-Train multiple models and average predictions:
-```bash
-for i in {1..5}; do
-    python fit_nn.py --output results_ensemble_$i/ --seed $i
-done
-```
-
-### Feature Importance
-
-Analyze which correlations are most important using:
-- Gradient-based feature importance
-- Permutation importance
-- SHAP values
-
-## Support
-
-For issues or questions:
-1. Check training logs and error messages
-2. Review test metrics and plots
-3. Verify data format and preprocessing
-4. Try different hyperparameters
-
-## Next Steps
-
-After successful training:
-1. **Validate** on independent simulation data
-2. **Apply** to real empirical data
-3. **Compare** predictions with other methods
-4. **Refine** model architecture based on performance
-5. **Document** findings and performance benchmarks
-
-## useful command
 python ./train_realistic_pgs_only.py --data nn_training_combined400.csv --device cpu --output ./results_400con --interaction_degree 2 --epochs 3000
+```
+
+### PGS + Phenotypic model
+```bash
+# Train
+python train_realistic_pgs_and_pheno.py --data nn_training_combined_large.csv --device cpu --output ./results_pgs_and_pheno --interaction_degree 1 --epochs 1500
+
+# Train with only 4 phenotypic correlations
+python train_realistic_pgs_and_pheno.py --data nn_training_combined_large.csv --device cpu --epochs 1500 --y1_features S PSC M MS --output ./results_pgs_and_4pheno --interaction_degree 1
+
+# Predict
+python predict_from_observed_pgs_and_pheno.py --model_dir results_pgs_and_4pheno --correlations_pgs observed_correlations_PGS.csv --correlations_pheno observed_correlations_pheno.csv
+```
