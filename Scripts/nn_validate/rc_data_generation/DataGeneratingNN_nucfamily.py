@@ -196,9 +196,13 @@ def setup_matrices(params):
     # Total phenotypic covariance
     covy_mat = covg_mat + cove_mat
     
-    # Get mate correlation for trait 2 (single-trait mating mode)
+    # Mate correlation matrix for bivariate AM (both traits)
+    am11 = params['am11']
+    am12 = params['am12']
+    am21 = params['am21']
     am22 = params['am22']
-    
+    am_mat = np.array([[am11, am12], [am21, am22]])
+
     # Vertical transmission matrix
     f11 = params['f11']
     f12 = params['f12']
@@ -209,9 +213,9 @@ def setup_matrices(params):
     # Social homogamy matrix (set to zero - phenotypic AM only)
     s_mat = np.zeros((2, 2))
     
-    # AM list: list of scalar values for single-trait mating on trait 2
-    am_list = [am22 for _ in range(N_GENERATIONS)]
-    
+    # AM list: list of 2x2 matrices for bivariate mating on both traits
+    am_list = [am_mat.copy() for _ in range(N_GENERATIONS)]
+
     return {
         'cove_mat': cove_mat,
         'f_mat': f_mat,
@@ -219,7 +223,7 @@ def setup_matrices(params):
         'a_mat': a_mat,
         'd_mat': delta_mat,
         'am_list': am_list,
-        'mate_on_trait': 2,
+        'mate_on_trait': None,
         'covy_mat': covy_mat,
         'k2_matrix': k2_matrix
     }
@@ -347,7 +351,7 @@ def run_single_iteration(iteration, condition_name, params, matrices):
     condition_hash = hash(condition_name) % 100000
     seed = condition_hash * 100 + iteration + 1
     
-    # Extract mate_on_trait for single-trait mating mode
+    # Extract mate_on_trait (None = bivariate mating on both traits)
     mate_on_trait = matrices.pop('mate_on_trait', None)
     
     # Initialize simulation

@@ -37,7 +37,7 @@ export SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}
 
 # Run combined script
 echo "Starting combined simulation and analysis for condition $SLURM_ARRAY_TASK_ID..."
-python -u DataGeneratingNN_Combined.py
+python -u DataGeneratingNN_nucfamily.py
 
 echo "Task $SLURM_ARRAY_TASK_ID completed."
 
