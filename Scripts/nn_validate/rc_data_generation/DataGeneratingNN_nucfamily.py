@@ -29,17 +29,18 @@ from SimulationFunctions import AssortativeMatingSimulation
 # ============================================================================
 
 # Directory setup - using a new directory for this combined approach
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data_Vali/DataGeneratingNN_uniSEMPGS_20250223_TEST")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data_Vali/DataGeneratingNN_uniSEMPGS_20250223")
 
 # Get SLURM array task ID
 SLURM_TASK_ID = int(os.environ.get('SLURM_ARRAY_TASK_ID', '1'))
 
 # Simulation parameters
-ITERATIONS_PER_CONDITION = 2   # TEST: 2 iterations per condition
-POP_SIZE = 2000                # TEST: small population
-N_GENERATIONS = 20             # TEST: fewer generations
-FINAL_GENS = [18, 19]            # TEST: final 2 of 10 generations
-N_CV = 2000                     # TEST: fewer causal variants
+N_CONDITIONS = 1000              # Total number of parameter conditions to generate
+ITERATIONS_PER_CONDITION = 30
+POP_SIZE = 20000             
+N_GENERATIONS = 20           
+FINAL_GENS = [18, 19]         
+N_CV = 2000                   
 MAF_MIN = 0.01
 MAF_MAX = 0.5
 
@@ -51,8 +52,8 @@ PARAM_RANGES = {
     'f21': [0.00, 0.07, 0.14, 0.21, 0.28, 0.35],
     'prop_h2_latent1': [0.00, 0.20, 0.40, 0.60, 0.80, 1.00],
     'prop_h2_latent2': [0.00, 0.20, 0.40, 0.60, 0.80, 1.00],
-    'vg1': [0.00, 0.20, 0.40, 0.60, 0.80, 1.00],
-    'vg2': [0.00, 0.20, 0.40, 0.60, 0.80, 1.00],
+    'vg1': [0.05, 0.20, 0.40, 0.60, 0.80, 1.00],
+    'vg2': [0.05, 0.20, 0.40, 0.60, 0.80, 1.00],
     're':  [0.00, 0.20, 0.40, 0.60, 0.80, 1.00],
     'am11': [0.00, 0.10, 0.20, 0.30, 0.40, 0.50],
     'am12': [0.00, 0.10, 0.20, 0.30, 0.40, 0.50],
@@ -99,7 +100,7 @@ FIXED_PARAMS = {
 # PARAMETER GENERATION
 # ============================================================================
 
-def generate_conditions(n_conditions=500, seed=62):
+def generate_conditions(n_conditions=1000, seed=62):
     """Generate parameter combinations."""
     np.random.seed(seed)
     
@@ -124,7 +125,7 @@ def save_conditions_config():
     """Save all conditions to a CSV file for reference and reproducibility."""
     PROJECT_BASE.mkdir(parents=True, exist_ok=True)
     
-    n_conditions_needed = 5   # TEST: only 5 conditions
+    n_conditions_needed = N_CONDITIONS
     needs_regeneration = False
     
     if CONDITIONS_FILE.exists():
