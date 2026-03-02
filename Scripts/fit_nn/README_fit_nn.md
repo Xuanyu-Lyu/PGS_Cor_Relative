@@ -134,9 +134,15 @@ python ./train_realistic_pgs_only.py --data nn_training_combined400.csv --device
 # Train
 python train_realistic_pgs_and_pheno.py --data nn_training_combined_large.csv --device cpu --output ./results_pgs_and_pheno --interaction_degree 1 --epochs 1500
 
-# Train with only 4 phenotypic correlations
-python train_realistic_pgs_and_pheno.py --data nn_training_combined_large.csv --device cpu --epochs 1500 --y1_features S PSC M MS --output ./results_pgs_and_4pheno --interaction_degree 1
+# Train with only 3 phenotypic correlations
+python train_realistic_pgs_and_pheno.py --data nn_training_combined_large.csv --device cpu --epochs 1500 --y1_features S M MS --output ./results_pgs_and_3pheno --interaction_degree 1
+
+# Train with only 3 phenotypic correlations but using the training data with cross-trait VT
+python train_realistic_pgs_and_pheno.py --data nn_training_combined_relaxed_f_250203.csv --device cpu --epochs 1000 --y1_features S M MS --output ./results_pgs_and_3pheno_f_250203 --interaction_degree 1 --param_set extended
 
 # Predict
-python predict_from_observed_pgs_and_pheno.py --model_dir results_pgs_and_4pheno --correlations_pgs observed_correlations_PGS.csv --correlations_pheno observed_correlations_pheno.csv
+python predict_from_observed_pgs_and_pheno.py --model_dir results_pgs_and_3pheno_f_250203 --correlations_pgs observed_correlations_PGS.csv --correlations_pheno observed_correlations_pheno.csv
+
+# Predict — param_names are auto-detected from config.json; works for both 7 and 9 output models
+python predict_from_observed_pgs_and_pheno.py --model_dir results_pgs_and_3pheno_f_250203 --correlations_pgs observed_correlations_PGS.csv --correlations_pheno observed_correlations_pheno.csv
 ```

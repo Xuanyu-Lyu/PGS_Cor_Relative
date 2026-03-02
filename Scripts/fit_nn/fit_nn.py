@@ -14,6 +14,7 @@ Shared exports:
   - plot_residuals:     Residual diagnostic plots
 """
 
+import math
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -34,7 +35,7 @@ np.random.seed(42)
 
 # Parameter names (targets to predict)
 PARAM_NAMES = ['f11', 'prop_h2_latent1', 'vg1', 'vg2', 'f22', 'am22', 'rg']
-
+PARAM_NAMES_EXT = ['f11','f22', 'f12', 'f21', 'prop_h2_latent1', 'vg1', 'vg2',  'am22', 'rg']
 # ============================================================================
 # DATASET CLASS
 # ============================================================================
@@ -62,10 +63,16 @@ class CorrelationDataset(Dataset):
 # EVALUATION
 # ============================================================================
 
-def evaluate_model(model, test_loader, target_scaler, device, output_dir):
+def evaluate_model(model, test_loader, target_scaler, device, output_dir, param_names=None):
     """
     Evaluate the model on test set and compute metrics.
+    
+    Args:
+        param_names: list of parameter names matching model outputs.
+                     Defaults to PARAM_NAMES if not provided.
     """
+    param_names = param_names or PARAM_NAMES
+
     print("\n" + "="*70)
     print("EVALUATING MODEL ON TEST SET")
     print("="*70)
@@ -94,7 +101,7 @@ def evaluate_model(model, test_loader, target_scaler, device, output_dir):
     print(f"\n{'Parameter':<20} {'R²':<10} {'RMSE':<10} {'MAE':<10}")
     print("-" * 70)
     
-    for i, param_name in enumerate(PARAM_NAMES):
+    for i, param_name in enumerate(param_names):
         y_true = targets[:, i]
         y_pred = predictions[:, i]
         
@@ -133,19 +140,28 @@ def evaluate_model(model, test_loader, target_scaler, device, output_dir):
     
     return results
 
+
 # ============================================================================
 # VISUALIZATION
 # ============================================================================
 
-def plot_predictions(results, output_dir):
-    """Plot predicted vs true values for each parameter."""
+def plot_predictions(results, output_dir, param_names=None):
+    """Plot predicted vs true values for each parameter.
+    
+    Args:
+        param_names: list of parameter names. Defaults to PARAM_NAMES if not provided.
+    """
+    param_names = param_names or PARAM_NAMES
     output_dir = Path(output_dir)
 
-    # Overview plot (all parameters)
-    fig, axes = plt.subplots(2, 4, figsize=(16, 8))
+    # Overview plot (all parameters) — dynamic grid
+    n_params = len(param_names)
+    n_cols = 4
+    n_rows = math.ceil(n_params / n_cols)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 4 * n_rows))
     axes = axes.flatten()
     
-    for i, param_name in enumerate(PARAM_NAMES):
+    for i, param_name in enumerate(param_names):
         ax = axes[i]
         y_true = results[param_name]['true']
         y_pred = results[param_name]['pred']
@@ -163,7 +179,9 @@ def plot_predictions(results, output_dir):
         ax.legend(fontsize=8)
         ax.grid(True, alpha=0.3)
     
-    fig.delaxes(axes[-1])
+    # Hide any unused subplot slots
+    for j in range(n_params, n_rows * n_cols):
+        fig.delaxes(axes[j])
     
     plt.tight_layout()
     plt.savefig(output_dir / 'predictions_vs_true.png', dpi=300, bbox_inches='tight')
@@ -171,7 +189,7 @@ def plot_predictions(results, output_dir):
     print(f"✓ Saved predictions vs true values plot")
     
     # Individual high-res plots
-    for param_name in PARAM_NAMES:
+    for param_name in param_names:
         fig, ax = plt.subplots(figsize=(8, 8))
         y_true = results[param_name]['true']
         y_pred = results[param_name]['pred']
@@ -199,14 +217,22 @@ def plot_predictions(results, output_dir):
     
     print(f"✓ Saved individual parameter plots")
 
-def plot_residuals(results, output_dir):
-    """Plot residuals for each parameter."""
+def plot_residuals(results, output_dir, param_names=None):
+    """Plot residuals for each parameter.
+    
+    Args:
+        param_names: list of parameter names. Defaults to PARAM_NAMES if not provided.
+    """
+    param_names = param_names or PARAM_NAMES
     output_dir = Path(output_dir)
 
-    fig, axes = plt.subplots(2, 4, figsize=(16, 8))
+    n_params = len(param_names)
+    n_cols = 4
+    n_rows = math.ceil(n_params / n_cols)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 4 * n_rows))
     axes = axes.flatten()
     
-    for i, param_name in enumerate(PARAM_NAMES):
+    for i, param_name in enumerate(param_names):
         ax = axes[i]
         y_true = results[param_name]['true']
         y_pred = results[param_name]['pred']
@@ -219,7 +245,8 @@ def plot_residuals(results, output_dir):
         ax.set_title(f'{param_name}', fontsize=11, fontweight='bold')
         ax.grid(True, alpha=0.3)
     
-    fig.delaxes(axes[-1])
+    for j in range(n_params, n_rows * n_cols):
+        fig.delaxes(axes[j])
     
     plt.tight_layout()
     plt.savefig(output_dir / 'residuals.png', dpi=300, bbox_inches='tight')

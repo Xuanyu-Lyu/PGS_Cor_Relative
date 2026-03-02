@@ -25,7 +25,7 @@ import json
 import sys
 
 from train_realistic_pgs_and_pheno import FeatureAwarePredictorPgsPheno
-from fit_nn import PARAM_NAMES
+from fit_nn import PARAM_NAMES, PARAM_NAMES_EXT
 
 def load_trained_model(model_dir):
     """Load trained model, scalers, and configuration."""
@@ -36,6 +36,10 @@ def load_trained_model(model_dir):
     # Load config
     with open(model_dir / 'config.json', 'r') as f:
         config = json.load(f)
+    
+    # Determine parameter names from config (supports both 7 and 9 output models)
+    param_names = config.get('param_names', PARAM_NAMES)
+    n_outputs = len(param_names)
     
     # Load scalers
     feature_scaler = joblib.load(model_dir / 'feature_scaler.pkl')
@@ -52,7 +56,8 @@ def load_trained_model(model_dir):
     model = FeatureAwarePredictorPgsPheno(
         n_features=config['n_engineered_features'],
         hidden_sizes=config['hidden_sizes'],
-        dropout_rate=config['dropout_rate']
+        dropout_rate=config['dropout_rate'],
+        n_outputs=n_outputs
     )
     
     # Load weights
@@ -64,8 +69,9 @@ def load_trained_model(model_dir):
     print(f"✓ Best validation loss: {checkpoint['val_loss']:.6f}")
     print(f"✓ Model uses {config.get('n_original_pgs1_features', '?')} PGS1 features "
           f"and {config.get('n_original_y1_features', '?')} Y1 features")
+    print(f"✓ Predicting {n_outputs} parameters: {param_names}")
     
-    return model, feature_scaler, target_scaler, poly_transformer, config, device
+    return model, feature_scaler, target_scaler, poly_transformer, config, device, param_names
 
 def prepare_correlation_input(pgs_correlations_dict, pheno_correlations_dict, expected_features):
     """
@@ -186,8 +192,13 @@ def predict_parameters(model, feature_scaler, target_scaler, poly_transformer,
     
     return predictions[0]  # Return single prediction
 
-def display_predictions(predictions, confidence=False):
-    """Display predicted parameters in a nice format."""
+def display_predictions(predictions, param_names):
+    """Display predicted parameters in a nice format.
+    
+    Args:
+        predictions: array of predicted values
+        param_names: list of parameter names matching the model outputs
+    """
     
     print("\n" + "="*70)
     print("PREDICTED PARAMETERS (PGS + Phenotypic Model)")
@@ -198,22 +209,24 @@ def display_predictions(predictions, confidence=False):
     
     descriptions = {
         'f11': 'Vertical transmission (trait 1)',
+        'f22': 'Vertical transmission (trait 2)',
+        'f12': 'Cross-trait VT (trait 1 -> trait 2)',
+        'f21': 'Cross-trait VT (trait 2 -> trait 1)',
         'prop_h2_latent1': 'Prop. h² latent (trait 1)',
         'vg1': 'Genetic variance (trait 1)',
         'vg2': 'Genetic variance (trait 2)',
-        'f22': 'Vertical transmission (trait 2)',
         'am22': 'Assortative mating coef.',
         'rg': 'Genetic correlation'
     }
     
-    for param, value in zip(PARAM_NAMES, predictions):
+    for param, value in zip(param_names, predictions):
         desc = descriptions.get(param, '')
         print(f"{param:<20} {value:<20.4f} {desc}")
     
     print("="*70)
     
     # Create DataFrame for easy export
-    pred_df = pd.DataFrame([predictions], columns=PARAM_NAMES)
+    pred_df = pd.DataFrame([predictions], columns=param_names)
     
     return pred_df
 
@@ -285,7 +298,7 @@ def main():
         return
     
     # Load model
-    model, feature_scaler, target_scaler, poly_transformer, config, device = \
+    model, feature_scaler, target_scaler, poly_transformer, config, device, param_names = \
         load_trained_model(model_dir)
     
     # Get PGS correlations
@@ -376,7 +389,7 @@ def main():
     )
     
     # Display results
-    pred_df = display_predictions(predictions)
+    pred_df = display_predictions(predictions, param_names)
     
     # Save predictions
     if args.output is None:

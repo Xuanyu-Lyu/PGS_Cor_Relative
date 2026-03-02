@@ -15,6 +15,7 @@ Improvements over PGS-only:
 3. More relationship types
 4. Parameter-specific models (some parameters predict better than others)
 5. Uncertainty quantification
+6. SHAP Value Feature Importance Extraction
 
 Usage:
     python train_realistic_pgs_and_pheno.py --data nn_training_combined400.csv --device cpu --interaction_degree 1 --epochs 1000
@@ -29,8 +30,9 @@ import argparse
 from pathlib import Path
 import joblib
 import json
+import shap
 
-from fit_nn import CorrelationDataset, PARAM_NAMES
+from fit_nn import CorrelationDataset, PARAM_NAMES, PARAM_NAMES_EXT
 from sklearn.preprocessing import StandardScaler, PolynomialFeatures
 from sklearn.metrics import r2_score, mean_squared_error
 
@@ -102,11 +104,11 @@ def load_and_clean_data(data_path, missing_threshold=0.95):
     print(f"✓ Removed {before_dedup - len(df)} duplicate rows")
     print(f"  Remaining: {len(df)} samples")
     
-    # 3. Check for extreme outliers in correlations (abs > 1.5, which shouldn't exist)
-    outlier_mask = (df[cor_cols].abs() > 1.5).any(axis=1)
+    # 3. Check for extreme outliers in correlations (abs > 1, which shouldn't exist)
+    outlier_mask = (df[cor_cols].abs() > 1).any(axis=1)
     n_outliers = outlier_mask.sum()
     if n_outliers > 0:
-        print(f"⚠ Warning: Found {n_outliers} rows with impossible correlation values (|r| > 1.5)")
+        print(f"⚠ Warning: Found {n_outliers} rows with impossible correlation values (|r| > 1)")
         df = df[~outlier_mask].copy()
         print(f"  Removed these outliers. Remaining: {len(df)} samples")
     
@@ -237,10 +239,10 @@ class FeatureAwarePredictorPgsPheno(nn.Module):
     - Deeper initial layers to extract patterns
     - Parameter-specific branches
     """
-    def __init__(self, n_features, hidden_sizes=[512, 512, 256, 256], dropout_rate=0.4):
+    def __init__(self, n_features, hidden_sizes=[512, 512, 256, 256], dropout_rate=0.4, n_outputs=None):
         super(FeatureAwarePredictorPgsPheno, self).__init__()
         
-        # Shared feature extraction
+        n_out = n_outputs if n_outputs is not None else len(PARAM_NAMES)
         self.feature_extractor = nn.Sequential(
             nn.Linear(n_features, hidden_sizes[0]),
             nn.BatchNorm1d(hidden_sizes[0]),
@@ -270,7 +272,7 @@ class FeatureAwarePredictorPgsPheno(nn.Module):
         )
         
         # Output layer
-        self.output = nn.Linear(hidden_sizes[3], len(PARAM_NAMES))
+        self.output = nn.Linear(hidden_sizes[3], n_out)
         
     def forward(self, x):
         features = self.feature_extractor(x)
@@ -278,6 +280,83 @@ class FeatureAwarePredictorPgsPheno(nn.Module):
         deep_features = self.deeper(attended)
         output = self.output(deep_features)
         return output
+
+# ============================================================================
+# SHAP VALUE CALCULATION
+# ============================================================================
+
+def calculate_and_save_shap(model, X_train, X_test, feature_names, param_names, output_dir, device):
+    """Calculate SHAP values to quantify feature importance per output parameter."""
+    print("\n" + "="*70)
+    print("CALCULATING SHAP VALUES (FEATURE IMPORTANCE)")
+    print("="*70)
+
+    # 1. Select a random background subset to speed up the baseline calculation
+    bg_size = min(200, X_train.shape[0])
+    bg_indices = np.random.choice(X_train.shape[0], bg_size, replace=False)
+    background = torch.FloatTensor(X_train[bg_indices]).to(device)
+
+    # 2. Select a subset of test data for explanation
+    test_size = min(200, X_test.shape[0])
+    test_indices = np.random.choice(X_test.shape[0], test_size, replace=False)
+    test_samples = torch.FloatTensor(X_test[test_indices]).to(device)
+
+    model.eval()
+
+    try:
+        # 3. Initialize the GradientExplainer (more robust than DeepExplainer
+        #    for architectures with BatchNorm or custom attention layers)
+        explainer = shap.GradientExplainer(model, background)
+
+        # 4. Calculate SHAP values
+        shap_values = explainer.shap_values(test_samples)
+
+        # GradientExplainer returns either:
+        #   - a list of arrays [(n_samples, n_features), ...] (one per output), or
+        #   - a single array of shape (n_samples, n_features, n_outputs)
+        # Normalise to a list indexed by output.
+        if isinstance(shap_values, np.ndarray) and shap_values.ndim == 3:
+            # shape: (n_samples, n_features, n_outputs) -> list of (n_samples, n_features)
+            shap_values = [shap_values[:, :, i] for i in range(shap_values.shape[2])]
+        elif isinstance(shap_values, list) and len(shap_values) == 1:
+            # Some versions wrap everything in a single-element list of (n_samples, n_features, n_outputs)
+            arr = shap_values[0]
+            if arr.ndim == 3:
+                shap_values = [arr[:, :, i] for i in range(arr.shape[2])]
+
+        test_np = test_samples.cpu().numpy()
+
+        # 5. Process and save the results
+        importance_dict = {'Feature': feature_names}
+
+        for i, param in enumerate(param_names):
+            sv = shap_values[i]  # shape: (n_samples, n_features)
+            # Calculate mean absolute SHAP over all test samples for this parameter
+            mean_abs_shap = np.abs(sv).mean(axis=0)
+            importance_dict[f'{param}_importance'] = mean_abs_shap
+
+            # Generate a summary plot for this parameter
+            plt.figure(figsize=(10, 6))
+            shap.summary_plot(sv, test_np, feature_names=feature_names, show=False)
+            plt.title(f'SHAP Summary: {param}')
+            plt.tight_layout()
+            plt.savefig(output_dir / f'shap_summary_{param}.png', dpi=300, bbox_inches='tight')
+            plt.close()
+
+        # Save aggregated importance to CSV
+        importance_df = pd.DataFrame(importance_dict)
+
+        # Add a "Total Importance" column summing across all parameters
+        importance_df['Total_Importance'] = importance_df.drop('Feature', axis=1).sum(axis=1)
+        importance_df = importance_df.sort_values(by='Total_Importance', ascending=False)
+
+        importance_df.to_csv(output_dir / 'shap_feature_importance.csv', index=False)
+        print(f"✓ Saved SHAP summary plots and importance CSV to {output_dir}")
+
+    except Exception as e:
+        print(f"⚠ SHAP calculation failed: {e}")
+        print("  This can occasionally happen with specific PyTorch layer architectures.")
+
 
 # ============================================================================
 # TRAINING
@@ -399,6 +478,9 @@ def main():
     parser.add_argument('--dropout', type=float, default=0.4)
     parser.add_argument('--interaction_degree', type=int, default=2,
                        help='Polynomial degree for feature interactions (1=no interactions, 2=pairwise)')
+    parser.add_argument('--param_set', type=str, default='standard',
+                       choices=['standard', 'extended'],
+                       help='Parameter set to predict: "standard" (7 params) or "extended" (9 params, includes f12/f21)')
     parser.add_argument('--analyze_predictability', action='store_true',
                        help='Run predictability analysis before training')
     parser.add_argument('--missing_threshold', type=float, default=0.95,
@@ -424,6 +506,10 @@ def main():
     else:
         device = torch.device(args.device)
     print(f"\nUsing device: {device}")
+    
+    # Resolve parameter set
+    active_param_names = PARAM_NAMES_EXT if args.param_set == 'extended' else PARAM_NAMES
+    print(f"\nParameter set: {args.param_set} ({len(active_param_names)} parameters: {active_param_names})")
     
     # Load data
     df = load_and_clean_data(args.data, missing_threshold=args.missing_threshold)
@@ -492,9 +578,9 @@ def main():
     
     # Prepare targets
     if 'param_f11' in df.columns:
-        target_cols = [f'param_{p}' for p in PARAM_NAMES]
+        target_cols = [f'param_{p}' for p in active_param_names]
     else:
-        target_cols = PARAM_NAMES
+        target_cols = active_param_names
     
     y = df[target_cols].values
     
@@ -544,7 +630,8 @@ def main():
     print("="*70)
     
     n_features = X_engineered.shape[1]
-    model = FeatureAwarePredictorPgsPheno(n_features, args.hidden_sizes, args.dropout)
+    model = FeatureAwarePredictorPgsPheno(n_features, args.hidden_sizes, args.dropout,
+                                          n_outputs=len(active_param_names))
     model = model.to(device)
     
     print(f"\nInput features: {n_features} (after engineering)")
@@ -568,10 +655,14 @@ def main():
     model.load_state_dict(checkpoint['model_state_dict'])
     
     from fit_nn import evaluate_model, plot_predictions, plot_residuals
-    results = evaluate_model(model, test_loader, target_scaler, device, output_dir)
-    plot_predictions(results, output_dir)
-    plot_residuals(results, output_dir)
-    
+    results = evaluate_model(model, test_loader, target_scaler, device, output_dir,
+                             param_names=active_param_names)
+    plot_predictions(results, output_dir, param_names=active_param_names)
+    plot_residuals(results, output_dir, param_names=active_param_names)
+
+    # Calculate and save SHAP feature importance
+    calculate_and_save_shap(model, X_train, X_test, feature_names, active_param_names, output_dir, device)
+
     # Save config
     config = {
         'n_original_pgs1_features': len(pgs1_cols),
@@ -583,6 +674,7 @@ def main():
         'dropout_rate': args.dropout,
         'epochs_trained': checkpoint['epoch'] + 1,
         'best_val_loss': float(checkpoint['val_loss']),
+        'param_names': active_param_names,
         'original_features': combined_feature_cols,
         'pgs1_features': pgs1_cols,
         'y1_features': y1_cols,
