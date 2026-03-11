@@ -14,10 +14,11 @@ Predict simulation parameters from relative correlations between kin types using
 | `am22` | Assortative mating coefficient (trait 2) |
 | `rg` | Genetic correlation between traits |
 
-## Two Model Variants
+## Three Model Variants
 
 1. **PGS-only**: Uses `cor_*_PGS1` features only
 2. **PGS + Phenotypic**: Uses both `cor_*_PGS1` and `cor_*_Y1` features
+3. **PGS + Phenotypic (Weighted)**: Same inputs as variant 2, but applies Feature-Specific Regularization (Weighted Weight Decay) to downweight phenotypic features that might otherwise dominate training
 
 ## Files
 
@@ -28,6 +29,8 @@ Predict simulation parameters from relative correlations between kin types using
 | `predict_from_observed.py` | Predict from PGS-only model |
 | `train_realistic_pgs_and_pheno.py` | Train PGS + phenotypic model |
 | `predict_from_observed_pgs_and_pheno.py` | Predict from PGS + phenotypic model |
+| `train_realistic_pgs_and_pheno_weighted.py` | Train PGS + phenotypic model with Feature-Specific Regularization |
+| `predict_from_observed_pgs_and_pheno_weighted.py` | Predict from Feature-Specific Regularization model |
 | `run_prediction.sh` | Shell script to run predictions |
 
 ## Requirements
@@ -103,6 +106,17 @@ python predict_from_observed_pgs_and_pheno.py \
     --correlations_pheno observed_correlations_pheno.csv
 ```
 
+### PGS + Phenotypic (Feature-Specific Regularization)
+
+Predict from PGS + phenotypic model:
+
+```bash
+python predict_from_observed_pgs_and_pheno_weighted.py \
+    --model_dir results_pgs_and_pheno_weighted \
+    --correlations_pgs observed_correlations_PGS.csv \
+    --correlations_pheno observed_correlations_pheno.csv
+```
+
 Or: `bash run_prediction.sh`
 
 ### Observed Correlation CSV Format
@@ -146,3 +160,71 @@ python predict_from_observed_pgs_and_pheno.py --model_dir results_pgs_and_3pheno
 # Predict — param_names are auto-detected from config.json; works for both 7 and 9 output models
 python predict_from_observed_pgs_and_pheno.py --model_dir results_pgs_and_3pheno_f_250203 --correlations_pgs observed_correlations_PGS.csv --correlations_pheno observed_correlations_pheno.csv
 ```
+
+## PGS + Phenotypic with Feature-Specific Regularization (Weighted Weight Decay)
+
+When phenotypic (Y1) correlations dominate training and suppress the contribution of PGS features,
+Feature-Specific Regularization applies a stronger L2 penalty specifically to the first-layer
+input weights connected to Y1 features. This is controlled by `--pheno_weight_decay` (higher = more
+penalised) while PGS weights use `--pgs_weight_decay` (typically kept small).
+
+**How it works:**
+- The optimizer weight decay is set to **0** internally.
+- Three explicit L2 penalties are added to the training loss each step:
+  1. `pgs_weight_decay` × L2 norm of first-layer weights for PGS input columns
+  2. `pheno_weight_decay` × L2 norm of first-layer weights for Y1 input columns
+  3. `weight_decay` (global) × L2 norm of all other model parameters
+- Architecture and data pipeline are identical to `train_realistic_pgs_and_pheno.py`.
+
+### Key Arguments (additional / changed)
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--pgs_weight_decay` | `0.0001` | L2 penalty for PGS-connected first-layer weights |
+| `--pheno_weight_decay` | `0.01` | L2 penalty for Y1-connected first-layer weights (set higher to reduce Y1 dominance) |
+| `--weight_decay` | `0.0001` | Global L2 penalty for all non-first-layer parameters |
+| `--interaction_degree` | `1` | Recommended to keep at `1`; feature-group mapping is cleanest with no polynomial expansion |
+
+### Train
+
+```bash
+# Basic: 3 Y1 features, extended param set, with feature-specific regularization
+python train_realistic_pgs_and_pheno_weighted.py \
+    --data nn_training_combined_relaxed_f_250203.csv \
+    --device cpu --epochs 1000 \
+    --y1_features S M MS \
+    --output ./results_pgs_and_3pheno_weighted \
+    --interaction_degree 1 \
+    --param_set extended \
+    --pheno_weight_decay 0.05 \
+    --pgs_weight_decay 0.0001
+
+# Stronger suppression of phenotypic features
+python train_realistic_pgs_and_pheno_weighted.py \
+    --data nn_training_combined_relaxed_f_250203.csv \
+    --device cpu --epochs 1000 \
+    --y1_features S M MS \
+    --output ./results_pgs_and_3pheno_weighted_strong \
+    --interaction_degree 1 \
+    --param_set extended \
+    --pheno_weight_decay 0.1 \
+    --pgs_weight_decay 0.0001
+```
+
+### Predict
+
+```bash
+python predict_from_observed_pgs_and_pheno_weighted.py \
+    --model_dir results_pgs_and_3pheno_weighted \
+    --correlations_pgs observed_correlations_PGS.csv \
+    --correlations_pheno observed_correlations_pheno.csv
+```
+
+### Tuning `--pheno_weight_decay`
+
+- Start with `0.01` and compare SHAP feature importance (`shap_feature_importance.csv`)
+  against a baseline run of `train_realistic_pgs_and_pheno.py`.
+- Increase to `0.05`–`0.1` if Y1 features still dominate the SHAP ranking.
+- Avoid setting it too high (> 0.5); it will begin underfitting the phenotypic signal entirely.
+- Check `test_metrics.json` R² values to confirm the weighted version does not lose
+  overall predictive accuracy.

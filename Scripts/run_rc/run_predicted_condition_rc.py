@@ -1,6 +1,6 @@
 """
-Simulation script for predicted condition from neural network.
-Runs 20 iterations with N=40000 for parameters predicted from observed PGS correlations.
+Simulation script for predicted condition from neural network (Feature-Specific Regularization model).
+Runs 20 iterations with N=40000 for parameters predicted from observed PGS + phenotypic correlations.
 Single-trait mating on trait 2 only (mate_on_trait=2).
 Saves data for final 3 generations and PGS correlations summary statistics.
 """
@@ -24,25 +24,26 @@ from extract_measures import extract_individual_measures, compute_correlations_f
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_pgs_and_4pheno")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_pgs_and_4pheno")
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_pgs_and_3pheno_weighted")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_pgs_and_3pheno_weighted")
 
-# Predicted condition from neural network
+# Predicted condition from neural network (Feature-Specific Regularization model)
 CONDITION = {
-    'name': 'Predicted_Condition_pgs_and_4pheno',
-    'f11': -0.0005,
-    'prop_h2_latent1': 0.7819,
-    'vg1': 0.5522,
-    'vg2': 0.5850,
-    'f22': 0.0422,
-    'am22': 0.6689,
-    'rg': 0.9020,
-    # Fixed cross-trait parameters
+    'name': 'Predicted_Condition_pgs_and_3pheno_weighted',
+    'f11': 0.0192,
+    'prop_h2_latent1': 0.8291,
+    'vg1': 0.6367,
+    'vg2': 0.4158,
+    'f22': 0.0851,
+    'am22': 0.7209,
+    'rg': 0.7419,
+    # Cross-trait vertical transmission (from extended param set)
+    'f12': -0.0140,
+    'f21': 0.1163,
+    # Fixed parameters
     'am11': 0,
     'am12': 0,
     'am21': 0,
-    'f12': 0,
-    'f21': 0,
     're': 0,
     'prop_h2_latent2': 0.8/0.8
 }

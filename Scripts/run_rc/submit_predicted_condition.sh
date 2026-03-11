@@ -36,9 +36,10 @@ export ITERATIONS_PER_TASK=5
 export SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}
 
 # Run simulation script
-echo "Starting predicted condition simulation..."
+echo "Starting predicted condition simulation (Feature-Specific Regularization model)..."
 echo "Parameters from neural network prediction:"
-echo "  f11: -0.0005 prop_h2_latent1: 0.7819 vg1: 0.5522 vg2: 0.5850 f22: 0.0422 am22: 0.6689 rg: 0.9020"
+echo "  f11: 0.0192  f22: 0.0851  f12: -0.0140  f21: 0.1163"
+echo "  prop_h2_latent1: 0.8291  vg1: 0.6367  vg2: 0.4158  am22: 0.7209  rg: 0.7419"
 echo ""
 python -u run_predicted_condition_rc.py
 
