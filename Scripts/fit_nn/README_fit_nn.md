@@ -203,11 +203,11 @@ python train_realistic_pgs_and_pheno_weighted.py \
 python train_realistic_pgs_and_pheno_weighted.py \
     --data nn_training_combined_relaxed_f_250203.csv \
     --device cpu --epochs 1000 \
-    --y1_features S M MS \
+    --y1_features all \
     --output ./results_pgs_and_3pheno_weighted_strong \
     --interaction_degree 1 \
     --param_set extended \
-    --pheno_weight_decay 0.1 \
+    --pheno_weight_decay 0.5 \
     --pgs_weight_decay 0.0001
 ```
 

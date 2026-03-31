@@ -148,9 +148,11 @@ class AssortativeMatingSimulation:
                  save_each_gen=True, save_covs=True, seed=0,
                  output_summary_filename=None, 
                  summary_file_scope="final", 
-                 cove_mat=None, f_mat=None, 
+                 cove_mat=None, 
+                 f_mat=None, 
                  s_mat=None, 
-                 a_mat=None, d_mat=None, 
+                 a_mat=None, 
+                 d_mat=None, 
                  am_list=None, mate_on_trait=None, covy_mat=None, k2_matrix=None):
 
         # --- CV GENERATION ---

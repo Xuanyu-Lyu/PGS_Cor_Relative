@@ -4,9 +4,12 @@ Data Generation Script for Neural Network Training - COMBINED VERSION
 This script runs forward-time simulations and immediately analyzes them without
 saving raw simulation data. This increases efficiency and saves storage space.
 
+This simulate one conditions: 
+1) AE model on both EA and latent mating factors, with single-trait phenotypic mating on trait 2 (AM on latent factor 2)
+
 Usage:
-    python DataGeneratingNN_Combined.py
-    (Run via SLURM array job - see submit_datagenerating_nn_combined.sh)
+    python DataGeneratingNN_Combined_02AElatentAM.py
+    (Run via SLURM array job - see submit_datagenerating_nn_combined_02AElatentAM.sh)
 """
 
 import numpy as np
@@ -30,7 +33,7 @@ from extract_measures import extract_individual_measures, compute_correlations_f
 # ============================================================================
 
 # Directory setup - using a new directory for this combined approach
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN_Relaxed_f_250203")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN_Paper/02AElatentAM")
 
 # Get SLURM array task ID
 SLURM_TASK_ID = int(os.environ.get('SLURM_ARRAY_TASK_ID', '1'))
@@ -46,15 +49,15 @@ MAF_MAX = 0.5
 
 # Parameter ranges for data generation (5+ values each)
 PARAM_RANGES = {
-    'f11': [0.05, 0.10, 0.15, 0.20, 0.25, 0.35],
     'prop_h2_latent1': [0.5, 0.6, 0.7, 0.8, 0.9],
+    'prop_h2_latent2': [0.5, 0.6, 0.7, 0.8, 0.9],
     'vg1': [0.4, 0.5, 0.6, 0.7, 0.8],
-    'vg2': [0.375, 0.5, 0.625, 0.75, 0.875],
-    'f22': [0.05, 0.10, 0.15, 0.20, 0.25, 0.30],
-    'f12': [0.02, 0.05, 0.10, 0.15, 0.20, 0.25], 
-    'f21': [0.02, 0.05, 0.10, 0.15, 0.20, 0.25], 
+    'vg2': [0.4, 0.5, 0.6, 0.7, 0.8],
+    #'f11': [0.05, 0.10, 0.15, 0.20, 0.25, 0.30],
+    #'f12': [0.02, 0.05, 0.10, 0.15, 0.20, 0.25], 
+    #'f21': [0.02, 0.05, 0.10, 0.15, 0.20, 0.25], 
     're': [0.0, 0.1, 0.2, 0.3, 0.4],
-    'am22': [0.35, 0.45, 0.525, 0.60, 0.675, 0.75],
+    'am22': [0.25, 0.35, 0.45, 0.525, 0.60, 0.675, 0.75],
     'rg': [0.40, 0.525, 0.60, 0.675, 0.75, 0.825, 0.90],
     
 }
@@ -64,10 +67,15 @@ FIXED_PARAMS = {
     'am11': 0,
     'am12': 0,
     'am21': 0,
-    #'f12': 0,
-    #'f21': 0,
-    #'re': 0,
-    'prop_h2_latent2': 1.0  # 0.8/0.8 = 1.0
+    'f11': 0,
+    'f12': 0,
+    'f21': 0,
+    'f22': 0,
+    's11': 0,
+    's12': 0,
+    's21': 0,
+    's22': 0,
+    #'prop_h2_latent2': 1.0  # 0.8/0.8 = 1.0
 }
 
 # Relationship types to analyze
@@ -192,7 +200,7 @@ def setup_matrices(params):
     # Total phenotypic covariance
     covy_mat = covg_mat + cove_mat
     
-    # Get mate correlation for trait 2 (single-trait mating mode)
+    # Get mate correlation for trait 2 (single-trait AM on trait 2 only)
     am22 = params['am22']
     
     # Vertical transmission matrix
@@ -201,13 +209,17 @@ def setup_matrices(params):
     f21 = params['f21']
     f22 = params['f22']
     f_mat = np.array([[f11, f12], [f21, f22]])
+
     
-    # Social homogamy matrix (set to zero - phenotypic AM only)
-    s_mat = np.zeros((2, 2))
+    # Enviromental correlation matrix (for shared environment effects, if any)
+    s11 = params['s11']
+    s12 = params['s12']
+    s21 = params['s21']
+    s22 = params['s22']
+    s_mat = np.array([[s11, s12], [s21, s22]])
     
-    # AM list: list of scalar values for single-trait mating on trait 2
+    # AM list: scalar values for single-trait mating on trait 2
     am_list = [am22 for _ in range(N_GENERATIONS)]
-    
     return {
         'cove_mat': cove_mat,
         'f_mat': f_mat,
