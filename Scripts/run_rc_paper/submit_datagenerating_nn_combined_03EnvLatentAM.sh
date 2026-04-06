@@ -36,6 +36,12 @@ conda activate /projects/xuly4739/general_env
 # Export task ID
 export SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}
 
+# Let task 1 run immediately so it can write the config file;
+# all other tasks wait 5 seconds before starting.
+if [ "$SLURM_ARRAY_TASK_ID" != "1" ]; then
+    sleep 5
+fi
+
 # Run combined script
 echo "Starting combined simulation and analysis for condition $SLURM_ARRAY_TASK_ID..."
 python -u DataGeneratingNN_Combined_03EnvLatentAM.py
