@@ -125,29 +125,34 @@ def generate_conditions(n_conditions=N_CONDITIONS_TOTAL, seed=42):
 CONDITIONS_FILE = PROJECT_BASE / "conditions_config.csv"
 
 def save_conditions_config():
-    """Save all conditions to a CSV file for reference and reproducibility."""
+    """Write conditions CSV atomically so parallel tasks never read a partial file."""
+    import time
     PROJECT_BASE.mkdir(parents=True, exist_ok=True)
-    
-    n_conditions_needed = N_CONDITIONS_TOTAL
-    needs_regeneration = False
-    
+
+    # --- Reader path: wait for the file to appear and be complete ---
     if CONDITIONS_FILE.exists():
-        # Check if existing file has the right number of conditions
-        existing_df = pd.read_csv(CONDITIONS_FILE)
-        if len(existing_df) != n_conditions_needed:
-            print(f"⚠ Existing config has {len(existing_df)} conditions, need {n_conditions_needed}")
-            needs_regeneration = True
-        else:
-            print(f"✓ Using existing conditions from {CONDITIONS_FILE} ({len(existing_df)} conditions)")
-    else:
-        needs_regeneration = True
-    
-    if needs_regeneration:
-        print(f"Generating {n_conditions_needed} parameter conditions...")
-        conditions = generate_conditions(n_conditions=n_conditions_needed, seed=42)
-        df = pd.DataFrame(conditions)
-        df.to_csv(CONDITIONS_FILE, index=False)
-        print(f"✓ Saved {len(conditions)} conditions to {CONDITIONS_FILE}")
+        for attempt in range(60):          # wait up to 5 minutes
+            try:
+                existing_df = pd.read_csv(CONDITIONS_FILE)
+                if len(existing_df) == N_CONDITIONS_TOTAL:
+                    print(f"✓ Using existing conditions from {CONDITIONS_FILE} ({len(existing_df)} conditions)")
+                    return
+                else:
+                    print(f"  Waiting for conditions file (has {len(existing_df)}/{N_CONDITIONS_TOTAL} rows)…")
+            except Exception:
+                print(f"  Waiting for conditions file to be readable (attempt {attempt+1})…")
+            time.sleep(5)
+        # File exists but never reached the right size — regenerate below
+        print(f"⚠ Conditions file incomplete after waiting; regenerating.")
+
+    # --- Writer path: generate and write atomically via rename ---
+    print(f"Generating {N_CONDITIONS_TOTAL} parameter conditions...")
+    conditions = generate_conditions(n_conditions=N_CONDITIONS_TOTAL, seed=42)
+    df = pd.DataFrame(conditions)
+    tmp_file = CONDITIONS_FILE.with_suffix(".tmp")
+    df.to_csv(tmp_file, index=False)
+    tmp_file.replace(CONDITIONS_FILE)          # atomic on POSIX/GPFS
+    print(f"✓ Saved {len(conditions)} conditions to {CONDITIONS_FILE}")
 
 def load_conditions_for_task(task_id):
     """Load the batch of CONDITIONS_PER_JOB conditions assigned to this SLURM task."""

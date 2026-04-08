@@ -38,7 +38,7 @@ export SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}
 # Let task 1 run immediately so it can write the config file;
 # all other tasks wait 5 seconds before starting.
 if [ "$SLURM_ARRAY_TASK_ID" != "1" ]; then
-    sleep 5
+    sleep 30
 fi
 
 # Run combined script
