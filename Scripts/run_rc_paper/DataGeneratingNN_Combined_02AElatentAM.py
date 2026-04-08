@@ -39,7 +39,9 @@ PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGe
 SLURM_TASK_ID = int(os.environ.get('SLURM_ARRAY_TASK_ID', '1'))
 
 # Simulation parameters
-ITERATIONS_PER_CONDITION = 40  # Number of iterations per condition
+ITERATIONS_PER_CONDITION = 1   # Each condition is unique; one simulation per condition
+CONDITIONS_PER_JOB = 40        # Conditions (simulations) processed per SLURM job
+N_CONDITIONS_TOTAL = 20000     # Total unique conditions (500 jobs × 40 conditions)
 POP_SIZE = 40000
 N_GENERATIONS = 15
 FINAL_GENS = [12, 13, 14]  # Final 3 generations to analyze
@@ -47,19 +49,15 @@ N_CV = 1000
 MAF_MIN = 0.01
 MAF_MAX = 0.5
 
-# Parameter ranges for data generation (5+ values each)
-PARAM_RANGES = {
-    'prop_h2_latent1': [0.5, 0.6, 0.7, 0.8, 0.9],
-    'prop_h2_latent2': [0.5, 0.6, 0.7, 0.8, 0.9],
-    'vg1': [0.4, 0.5, 0.6, 0.7, 0.8],
-    'vg2': [0.4, 0.5, 0.6, 0.7, 0.8],
-    #'f11': [0.05, 0.10, 0.15, 0.20, 0.25, 0.30],
-    #'f12': [0.02, 0.05, 0.10, 0.15, 0.20, 0.25], 
-    #'f21': [0.02, 0.05, 0.10, 0.15, 0.20, 0.25], 
-    're': [0.0, 0.1, 0.2, 0.3, 0.4],
-    'am22': [0.25, 0.35, 0.45, 0.525, 0.60, 0.675, 0.75],
-    'rg': [0.40, 0.525, 0.60, 0.675, 0.75, 0.825, 0.90],
-    
+# Parameter bounds for uniform sampling: [min, max]
+PARAM_BOUNDS = {
+    'prop_h2_latent1': [0.5,  0.9],
+    'prop_h2_latent2': [0.5,  0.9],
+    'vg1':             [0.4,  0.8],
+    'vg2':             [0.4,  0.8],
+    're':              [0.0,  0.4],
+    'am22':            [0.25, 0.75],
+    'rg':              [0.40, 0.90],
 }
 
 # Fixed parameters
@@ -103,19 +101,19 @@ RELATIONSHIP_TYPES = [
 # PARAMETER GENERATION
 # ============================================================================
 
-def generate_conditions(n_conditions=500, seed=42):
-    """Generate parameter combinations."""
+def generate_conditions(n_conditions=N_CONDITIONS_TOTAL, seed=42):
+    """Generate parameter combinations by sampling uniformly from PARAM_BOUNDS."""
     np.random.seed(seed)
     
     conditions = []
-    param_names = list(PARAM_RANGES.keys())
+    param_names = list(PARAM_BOUNDS.keys())
     
     for i in range(n_conditions):
-        condition = {'name': f'Condition_{i+1:04d}'}
+        condition = {'name': f'Condition_{i+1:05d}'}
         
         for param_name in param_names:
-            param_values = PARAM_RANGES[param_name]
-            condition[param_name] = np.random.choice(param_values)
+            lo, hi = PARAM_BOUNDS[param_name]
+            condition[param_name] = float(np.random.uniform(lo, hi))
         
         condition.update(FIXED_PARAMS)
         conditions.append(condition)
@@ -128,7 +126,7 @@ def save_conditions_config():
     """Save all conditions to a CSV file for reference and reproducibility."""
     PROJECT_BASE.mkdir(parents=True, exist_ok=True)
     
-    n_conditions_needed = 500
+    n_conditions_needed = N_CONDITIONS_TOTAL
     needs_regeneration = False
     
     if CONDITIONS_FILE.exists():
@@ -149,12 +147,14 @@ def save_conditions_config():
         df.to_csv(CONDITIONS_FILE, index=False)
         print(f"✓ Saved {len(conditions)} conditions to {CONDITIONS_FILE}")
 
-def load_condition(task_id):
-    """Load the condition for a specific task ID."""
+def load_conditions_for_task(task_id):
+    """Load the batch of CONDITIONS_PER_JOB conditions assigned to this SLURM task."""
     df = pd.read_csv(CONDITIONS_FILE)
-    if task_id > len(df):
-        raise ValueError(f"Task ID {task_id} exceeds number of conditions ({len(df)})")
-    return df.iloc[task_id - 1].to_dict()
+    start = (task_id - 1) * CONDITIONS_PER_JOB   # 0-based start index
+    end   = start + CONDITIONS_PER_JOB            # exclusive
+    if start >= len(df):
+        raise ValueError(f"Task ID {task_id} exceeds available conditions ({len(df)})")
+    return [row.to_dict() for _, row in df.iloc[start:end].iterrows()]
 
 # ============================================================================
 # SIMULATION FUNCTIONS
@@ -452,7 +452,7 @@ def run_condition(condition, project_base):
         combined_correlations = pd.concat(all_correlations, ignore_index=True)
         
         # Add parameter values to each row for NN training
-        for param in PARAM_RANGES.keys():
+        for param in PARAM_BOUNDS.keys():
             combined_correlations[f'param_{param}'] = condition[param]
         
         # Save detailed correlations with all iterations
@@ -486,7 +486,7 @@ def run_condition(condition, project_base):
             }
             
             # Add parameters
-            for param in PARAM_RANGES.keys():
+            for param in PARAM_BOUNDS.keys():
                 row[f'param_{param}'] = condition[param]
             
             # Add correlations for each relationship-variable combination
@@ -530,25 +530,24 @@ def main():
     # Save/load conditions configuration
     save_conditions_config()
     
-    # Load condition for this task
+    # Load all conditions assigned to this task
     try:
-        condition = load_condition(SLURM_TASK_ID)
-        print(f"Loaded condition for Task {SLURM_TASK_ID}")
+        conditions = load_conditions_for_task(SLURM_TASK_ID)
+        print(f"Loaded {len(conditions)} conditions for Task {SLURM_TASK_ID}")
     except Exception as e:
-        print(f"Error loading condition: {e}")
+        print(f"Error loading conditions: {e}")
         return
     
-    # Run the condition
-    success = run_condition(condition, PROJECT_BASE)
+    # Run each condition (1 iteration each)
+    n_success = 0
+    for condition in conditions:
+        success = run_condition(condition, PROJECT_BASE)
+        if success:
+            n_success += 1
     
-    if success:
-        print(f"\n{'='*70}")
-        print(f"TASK {SLURM_TASK_ID} COMPLETED SUCCESSFULLY")
-        print(f"{'='*70}\n")
-    else:
-        print(f"\n{'='*70}")
-        print(f"TASK {SLURM_TASK_ID} COMPLETED WITH ERRORS")
-        print(f"{'='*70}\n")
+    print(f"\n{'='*70}")
+    print(f"TASK {SLURM_TASK_ID}: {n_success}/{len(conditions)} conditions completed successfully")
+    print(f"{'='*70}\n")
 
 if __name__ == "__main__":
     main()
