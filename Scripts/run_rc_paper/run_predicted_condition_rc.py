@@ -1,8 +1,11 @@
 """
-Simulation script for predicted condition from neural network (Feature-Specific Regularization model).
-Runs 20 iterations with N=40000 for parameters predicted from observed PGS + phenotypic correlations.
-Single-trait mating on trait 2 only (mate_on_trait=2).
-Saves data for final 3 generations and PGS correlations summary statistics.
+Simulation script for predicted condition: two independent univariate Direct AM models
+run jointly within a single bivariate simulation (cross-trait parameters = 0).
+  - Trait 1: Direct AM, AE model (am11=0.3343, no vertical transmission, no social homogamy)
+             Source: results_npe_unweighted_01DirAM_AE posterior summary (means)
+  - Trait 2: Direct AM, AFE model (am22=0.3288, f22=0.0111, s22=0.2600)
+             Source: results_npe_unweighted_01DirAM_AFE posterior summary (means)
+Runs TOTAL_ITERATIONS with N=40000. Saves final 3 generations and summary statistics.
 """
 
 import numpy as np
@@ -24,28 +27,31 @@ from extract_measures import extract_individual_measures, compute_correlations_f
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_pgs_and_3pheno_weighted")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_pgs_and_3pheno_weighted")
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_uni_DirAM")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_uni_DirAM")
 
-# Predicted condition from neural network (Feature-Specific Regularization model)
+# Two independent univariate Direct AM conditions combined in one bivariate simulation.
+# All cross-trait parameters are 0, making the two traits statistically independent.
 CONDITION = {
-    'name': 'Predicted_Condition_pgs_and_3pheno_weighted',
-    'f11': 0.0192,
-    'prop_h2_latent1': 0.8291,
-    'vg1': 0.6367,
-    'vg2': 0.4158,
-    'f22': 0.0851,
-    'am22': 0.7209,
-    'rg': 0.7419,
-    # Cross-trait vertical transmission (from extended param set)
-    'f12': -0.0140,
-    'f21': 0.1163,
-    # Fixed parameters
-    'am11': 0,
-    'am12': 0,
-    'am21': 0,
-    're': 0,
-    'prop_h2_latent2': 0.8/0.8
+    'name': 'Predicted_Condition_uni_DirAM',
+    # Trait 1: Direct AM, AE model (posterior means from 01DirAM_AE)
+    'prop_h2_latent1': 0.7414,
+    'vg1': 0.2325,
+    'am11': 0.3343,
+    'f11': 0.0,       # AE model: no vertical transmission
+    # Trait 2: Direct AM, AFE model (posterior means from 01DirAM_AFE)
+    'prop_h2_latent2': 0.7082,
+    'vg2': 0.2708,
+    'am22': 0.3288,
+    'f22': 0.0111,    # AFE model: vertical transmission
+    's22': 0.2600,    # AFE model: social homogamy
+    # Cross-trait parameters (zero: independent univariate treatment)
+    'f12': 0.0,
+    'f21': 0.0,
+    'am12': 0.0,
+    'am21': 0.0,
+    'rg': 0.0,
+    're': 0.0,
 }
 
 # Simulation parameters
@@ -81,62 +87,63 @@ RELATIONSHIP_TYPES = [
 def setup_matrices(params):
     """
     Setup covariance and other matrices based on simulation parameters.
+    Traits are treated as independent (all cross-trait params = 0).
+    Trait 1: AE model  - no vertical transmission, no social homogamy (am11 on diagonal)
+    Trait 2: AFE model - vertical transmission f22, social homogamy s22 (am22 on diagonal)
     """
     vg1 = params['vg1']
     vg2 = params['vg2']
-    rg = params['rg']
-    re = params['re']
+    rg = params['rg']   # 0.0: independent traits
+    re = params['re']   # 0.0: independent traits
     prop_h2_latent1 = params['prop_h2_latent1']
     prop_h2_latent2 = params['prop_h2_latent2']
-    
-    # Implied variables (t0)
+
+    # Genetic correlation matrix (effectively identity since rg=0)
     k2_matrix = np.array([[1, rg], [rg, 1]])
-    
+
     # Observable genetic variance components
     vg_obs1 = vg1 * (1 - prop_h2_latent1)
     vg_obs2 = vg2 * (1 - prop_h2_latent2)
     d11 = np.sqrt(vg_obs1)
-    d21 = 0
-    d22 = np.sqrt(vg_obs2 - d21**2)
-    delta_mat = np.array([[d11, 0], [d21, d22]])
-    
+    d22 = np.sqrt(vg_obs2)
+    delta_mat = np.array([[d11, 0], [0, d22]])
+
     # Latent genetic variance components
     vg_lat1 = vg1 * prop_h2_latent1
     vg_lat2 = vg2 * prop_h2_latent2
     a11 = np.sqrt(vg_lat1)
-    a21 = 0
-    a22 = np.sqrt(vg_lat2 - a21**2)
-    a_mat = np.array([[a11, 0], [a21, a22]])
-    
+    a22 = np.sqrt(vg_lat2)
+    a_mat = np.array([[a11, 0], [0, a22]])
+
     # Total genetic covariance
     covg_mat = (delta_mat @ k2_matrix @ delta_mat.T) + (a_mat @ k2_matrix @ a_mat.T)
-    
+
     # Environmental covariance
     ve1 = 1 - vg1
     ve2 = 1 - vg2
-    cove = re * np.sqrt(ve1 * ve2)
+    cove = re * np.sqrt(ve1 * ve2)  # 0 since re=0
     cove_mat = np.array([[ve1, cove], [cove, ve2]])
-    
+
     # Total phenotypic covariance
     covy_mat = covg_mat + cove_mat
-    
-    # Get mate correlation for trait 2 (single-trait mating mode)
-    am22 = params['am22']
-    
+
+    # Assortative mating matrix (diagonal: independent AM per trait)
+    am_mat = np.array([[params['am11'], params['am12']],
+                       [params['am21'], params['am22']]])
+    am_list = [am_mat.copy() for _ in range(N_GENERATIONS)]
+
     # Vertical transmission matrix
-    f11 = params['f11']
-    f12 = params['f12']
-    f21 = params['f21']
-    f22 = params['f22']
-    f_mat = np.array([[f11, f12], [f21, f22]])
-    
-    # Social homogamy matrix (set to zero - phenotypic AM only)
-    s_mat = np.zeros((2, 2))
-    
-    # AM list: list of scalar values for single-trait mating on trait 2
-    # Each generation uses the same mate correlation value
-    am_list = [am22 for _ in range(N_GENERATIONS)]
-    
+    # Trait 1 (AE):  f11=0, no cross-trait
+    # Trait 2 (AFE): f22=0.0111, no cross-trait
+    f_mat = np.array([[params['f11'], params['f12']],
+                       [params['f21'], params['f22']]])
+
+    # Social homogamy matrix
+    # Trait 1 (AE):  s11=0
+    # Trait 2 (AFE): s22=0.2600
+    s_mat = np.array([[0.0,            0.0],
+                       [0.0, params['s22']]])
+
     return {
         'cove_mat': cove_mat,
         'f_mat': f_mat,
@@ -144,7 +151,6 @@ def setup_matrices(params):
         'a_mat': a_mat,
         'd_mat': delta_mat,
         'am_list': am_list,
-        'mate_on_trait': 2,  # Single-trait mating on trait 2
         'covy_mat': covy_mat,
         'k2_matrix': k2_matrix
     }
@@ -165,10 +171,7 @@ def run_single_iteration(iteration, condition_name, params, matrices, scratch_di
     iter_dir.mkdir(parents=True, exist_ok=True)
     summary_filename = str(iter_dir / f"iteration_{iteration+1:03d}_summary.txt")
     
-    # Extract mate_on_trait for single-trait mating mode
-    mate_on_trait = matrices.pop('mate_on_trait', None)
-    
-    # Initialize simulation
+    # Initialize simulation (rg_effects=0: traits are independent)
     sim = AssortativeMatingSimulation(
         n_CV=N_CV,
         rg_effects=params['rg'],
@@ -182,7 +185,6 @@ def run_single_iteration(iteration, condition_name, params, matrices, scratch_di
         save_covs=True,
         seed=seed,
         output_summary_filename=summary_filename,
-        mate_on_trait=mate_on_trait,
         **matrices
     )
     
@@ -384,9 +386,9 @@ def run_predicted_condition(condition, scratch_base, project_base):
     
     print(f"\n{'#'*70}")
     print(f"# Starting simulations: {condition_name}")
-    print(f"# Bivariate model with parameters from neural network prediction")
-    print(f"# f11={condition['f11']:.4f}, vg1={condition['vg1']:.4f}, prop_h2_latent1={condition['prop_h2_latent1']:.4f}")
-    print(f"# f22={condition['f22']:.4f}, vg2={condition['vg2']:.4f}, am22={condition['am22']:.4f}, rg={condition['rg']:.4f}")
+    print(f"# Two independent univariate Direct AM models (rg=0, no cross-trait effects)")
+    print(f"# Trait 1 (AE):  prop_h2_latent1={condition['prop_h2_latent1']:.4f}, vg1={condition['vg1']:.4f}, am11={condition['am11']:.4f}")
+    print(f"# Trait 2 (AFE): prop_h2_latent2={condition['prop_h2_latent2']:.4f}, vg2={condition['vg2']:.4f}, am22={condition['am22']:.4f}, f22={condition['f22']:.4f}, s22={condition['s22']:.4f}")
     print(f"# Array Task {task_id}: Running iterations {start_iter+1} to {end_iter}")
     print(f"# ({n_iterations} iterations in this task)")
     print(f"{'#'*70}\n")
@@ -495,7 +497,7 @@ def main():
     Main execution function.
     """
     print("\n" + "="*70)
-    print("PREDICTED CONDITION SIMULATION SCRIPT")
+    print("PREDICTED CONDITION SIMULATION SCRIPT - INDEPENDENT UNIVARIATE DIRECT AM")
     print("="*70)
     print(f"Scratch base directory: {SCRATCH_BASE}")
     print(f"Project base directory: {PROJECT_BASE}")
@@ -504,10 +506,11 @@ def main():
     print(f"Population size: {POP_SIZE}")
     print(f"Number of generations: {N_GENERATIONS} (saving final 3)")
     print(f"Number of causal variants: {N_CV}")
-    print(f"\nCondition parameters (from neural network prediction):")
-    print(f"  f11={CONDITION['f11']:.4f}, vg1={CONDITION['vg1']:.4f}, prop_h2_latent1={CONDITION['prop_h2_latent1']:.4f}")
-    print(f"  f22={CONDITION['f22']:.4f}, vg2={CONDITION['vg2']:.4f}")
-    print(f"  rg={CONDITION['rg']:.4f}, am22={CONDITION['am22']:.4f}")
+    print(f"\nTrait 1 parameters (AE model, 01DirAM_AE posterior means):")
+    print(f"  prop_h2_latent1={CONDITION['prop_h2_latent1']:.4f}, vg1={CONDITION['vg1']:.4f}, am11={CONDITION['am11']:.4f}, f11={CONDITION['f11']:.4f}")
+    print(f"\nTrait 2 parameters (AFE model, 01DirAM_AFE posterior means):")
+    print(f"  prop_h2_latent2={CONDITION['prop_h2_latent2']:.4f}, vg2={CONDITION['vg2']:.4f}, am22={CONDITION['am22']:.4f}, f22={CONDITION['f22']:.4f}, s22={CONDITION['s22']:.4f}")
+    print(f"\nCross-trait: rg={CONDITION['rg']:.4f}, re={CONDITION['re']:.4f} (independent traits)")
     print("="*70 + "\n")
     
     # Run the predicted condition

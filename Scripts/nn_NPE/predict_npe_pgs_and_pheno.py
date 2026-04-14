@@ -17,7 +17,7 @@ command-line arguments.
 Usage
 -----
     python predict_npe_pgs_and_pheno.py \
-        --model_dir results_npe_unweighted_01DirAM_AE \
+        --model_dir results_npe_unweighted_01DirAM_AFE \
         --correlations_pgs observed_correlations_PGS.csv \
         --correlations_pheno observed_correlations_pheno.csv \
         --n_samples 1000
@@ -114,6 +114,7 @@ def prepare_correlation_input(
     pgs_correlations_dict: dict,
     pheno_correlations_dict: dict,
     expected_features: list,
+    trait: int = 1,
 ) -> np.ndarray:
     """
     Assemble the input feature vector in the order expected by the model.
@@ -135,9 +136,12 @@ def prepare_correlation_input(
     matched_pgs = matched_pheno = 0
     missing = []
 
+    pgs_suffix   = f"_PGS{trait}"
+    pheno_suffix = f"_Y{trait}"
+
     for i, feat in enumerate(expected_features):
-        if "_PGS1" in feat:
-            rel = feat.replace("_PGS1", "")
+        if pgs_suffix in feat:
+            rel = feat.replace(pgs_suffix, "")
             if rel.startswith("cor_"):
                 rel = rel[4:]
             if rel in pgs_correlations_dict:
@@ -147,8 +151,8 @@ def prepare_correlation_input(
             else:
                 missing.append(f"PGS:{rel}")
 
-        elif "_Y1" in feat:
-            rel = feat.replace("_Y1", "")
+        elif pheno_suffix in feat:
+            rel = feat.replace(pheno_suffix, "")
             if rel.startswith("cor_"):
                 rel = rel[4:]
             if rel in pheno_correlations_dict:
@@ -156,7 +160,7 @@ def prepare_correlation_input(
                 matched_pheno += 1
                 used_pheno.add(rel)
             else:
-                missing.append(f"Y1:{rel}")
+                missing.append(f"Y{trait}:{rel}")
 
     unused_pgs   = set(pgs_correlations_dict.keys())   - used_pgs
     unused_pheno = set(pheno_correlations_dict.keys()) - used_pheno
@@ -180,7 +184,7 @@ def prepare_correlation_input(
         for r in sorted(unused_pgs):
             print(f"    • PGS:{r}  (not in training features)")
         for r in sorted(unused_pheno):
-            print(f"    • Y1:{r}  (not in training features)")
+            print(f"    • Y{trait}:{r}  (not in training features)")
 
     print(f"{'='*70}\n")
     return X.reshape(1, -1)
@@ -378,6 +382,8 @@ def main():
                         help="Output directory for results (default: <model_dir>/predictions/)")
     parser.add_argument("--no_pairplot", action="store_true",
                         help="Skip pair-plot (can be slow for many parameters)")
+    parser.add_argument("--trait", type=int, choices=[1, 2], default=1,
+                        help="Trait number the model was trained on (1 or 2, default: 1)")
 
     # PGS correlations as CLI arguments
     for rel in ["S", "HSFS", "PSC", "PPSCC", "M", "MS", "SMS", "MSC", "MSM",
@@ -473,15 +479,16 @@ def main():
     print("\nInput PGS correlations:")
     for r, v in sorted(pgs_correlations_dict.items()):
         print(f"  PGS  {r:<12} {v:.6f}")
-    print("\nInput phenotypic (Y1) correlations:")
+    print(f"\nInput phenotypic (Y{args.trait}) correlations:")
     for r, v in sorted(pheno_correlations_dict.items()):
-        print(f"  Y1   {r:<12} {v:.6f}")
+        print(f"  Y{args.trait}   {r:<12} {v:.6f}")
 
     # ------------------------------------------------------------------
     # Prepare and scale observation
     # ------------------------------------------------------------------
     X_raw = prepare_correlation_input(
-        pgs_correlations_dict, pheno_correlations_dict, config["original_features"]
+        pgs_correlations_dict, pheno_correlations_dict, config["original_features"],
+        trait=args.trait,
     )
 
     if poly_transformer is not None and config.get("interaction_degree", 1) > 1:
