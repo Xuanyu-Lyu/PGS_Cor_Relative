@@ -8,7 +8,7 @@
 #   bash /path/to/run_rc_paper/submit_all_predicted_condition.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RUN_RC_DIR="/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Scripts/run_rc"
+RUN_RC_DIR="${SCRIPT_DIR}"
 
 mkdir -p "${RUN_RC_DIR}/slurm_logs"
 

@@ -207,7 +207,10 @@ def compute_correlation_by_relationship(pairs_with_measures, variable_name, rela
                 # Compute p-value using scipy if available
                 try:
                     from scipy.stats import pearsonr
-                    _, p_value = pearsonr(clean_data[var_1], clean_data[var_2])
+                    if clean_data[var_1].std() == 0 or clean_data[var_2].std() == 0:
+                        p_value = np.nan
+                    else:
+                        _, p_value = pearsonr(clean_data[var_1], clean_data[var_2])
                 except ImportError:
                     p_value = np.nan
                 
@@ -235,7 +238,10 @@ def compute_correlation_by_relationship(pairs_with_measures, variable_name, rela
             
             try:
                 from scipy.stats import pearsonr
-                _, p_value = pearsonr(clean_data[var_1], clean_data[var_2])
+                if clean_data[var_1].std() == 0 or clean_data[var_2].std() == 0:
+                    p_value = np.nan
+                else:
+                    _, p_value = pearsonr(clean_data[var_1], clean_data[var_2])
             except ImportError:
                 p_value = np.nan
             
