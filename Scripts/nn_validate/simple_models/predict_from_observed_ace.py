@@ -1,18 +1,27 @@
 """
-Out-of-Sample Validation for the ACE Neural Network
+Out-of-Sample Validation for the ACE NPE Model
 
 Generates N fresh samples (default 200) that were NOT part of the training data,
-runs the trained model on them, and checks whether predictions are unbiased by
-comparing predicted vs true A, C, E values.
+draws posterior samples for each observation using the trained NPE posterior,
+and evaluates bias by comparing posterior means vs true A, C, E values.
+
+Unlike the old point-prediction script, this version reports:
+  - Posterior mean  (point estimate)
+  - Posterior std   (uncertainty per observation)
+  - 95% credible interval coverage
+  - Bias and R² metrics
 
 Usage:
     python predict_from_observed_ace.py
-    python predict_from_observed_ace.py --n_samples 500 --model_dir results_ace
+    python predict_from_observed_ace.py --n_samples 500 --model_dir results_ace_npe
 """
 
 import sys
+import math
 import json
+import pickle
 import argparse
+import warnings
 import numpy as np
 import pandas as pd
 import torch
@@ -21,65 +30,61 @@ from pathlib import Path
 import joblib
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 
-from train_ace_nn import ACEPredictor, ACE_PARAM_NAMES
+# ACEEmbeddingNet must be importable so pickle can reconstruct the posterior
+from train_ace_nn import ACEEmbeddingNet, ACE_PARAM_NAMES  # noqa: F401
 from generate_ace_data import generate_training_data
+
+warnings.filterwarnings('ignore')
 
 
 # ============================================================================
 # MODEL LOADING
 # ============================================================================
 
-def load_trained_model(model_dir):
-    """Load trained ACE model, scalers, and configuration."""
+def load_trained_posterior(model_dir):
+    """Load the trained NPE posterior and feature scaler."""
     model_dir = Path(model_dir)
-
-    print(f"\nLoading model from: {model_dir}")
+    print(f"\nLoading NPE posterior from: {model_dir}")
 
     with open(model_dir / 'config.json', 'r') as f:
         config = json.load(f)
 
-    param_names = config.get('param_names', ACE_PARAM_NAMES)
-
+    param_names    = config.get('param_names', ACE_PARAM_NAMES)
+    feature_cols   = config.get('feature_cols', ['mz_var', 'mz_cov', 'dz_var', 'dz_cov'])
     feature_scaler = joblib.load(model_dir / 'feature_scaler.pkl')
-    target_scaler  = joblib.load(model_dir / 'target_scaler.pkl')
+    print(f"✓ Loaded feature scaler")
 
-    device = torch.device('cpu')
-    model  = ACEPredictor(
-        n_features=config['n_features'],
-        hidden_sizes=config['hidden_sizes'],
-        dropout_rate=config['dropout_rate'],
-    )
+    posterior_path = model_dir / 'posterior.pkl'
+    if not posterior_path.exists():
+        print(f"\n✗ posterior.pkl not found in {model_dir}")
+        print("  Run train_ace_nn.py first to produce the posterior.")
+        sys.exit(1)
 
-    checkpoint = torch.load(model_dir / 'best_model.pt', map_location=device)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    model.eval()
-
-    epochs_trained = config.get('epochs_trained', checkpoint.get('epoch', '?'))
-    print(f"✓ Loaded model (trained for {epochs_trained} epochs)")
-    print(f"✓ Best validation loss: {checkpoint['val_loss']:.6f}")
-    print(f"✓ Input features: {config['feature_cols']}")
+    with open(posterior_path, 'rb') as f:
+        posterior = pickle.load(f)
+    print(f"✓ Loaded posterior object")
+    print(f"✓ Input features: {feature_cols}")
     print(f"✓ Predicting {len(param_names)} parameters: {param_names}")
 
-    return model, feature_scaler, target_scaler, config, device, param_names
+    return posterior, feature_scaler, config, param_names, feature_cols
 
 
 # ============================================================================
 # OUT-OF-SAMPLE VALIDATION
 # ============================================================================
 
-def run_oos_validation(n_samples=200, model_dir='results_ace', seed=999, output_dir=None):
+def run_oos_validation(n_samples=200, model_dir='results_ace_npe',
+                       n_posterior_samples=500, seed=999, output_dir=None):
     """
     Generate n_samples fresh ACE samples (distinct seed from training data),
-    predict A, C, E with the trained model, and evaluate bias.
+    draw posterior samples for each, and evaluate calibration and bias.
 
     Args:
-        n_samples:   Number of out-of-sample predictions to make
-        model_dir:   Path to trained model directory
-        seed:        Random seed (use a value different from training seed=42)
-        output_dir:  Where to save results; defaults to model_dir
-
-    Returns:
-        pd.DataFrame with columns [A_true, C_true, E_true, A_pred, C_pred, E_pred]
+        n_samples:           Number of out-of-sample observations to evaluate
+        model_dir:           Path to trained model directory
+        n_posterior_samples: Posterior draws per observation
+        seed:                Random seed (different from training seed=42)
+        output_dir:          Where to save results; defaults to model_dir
     """
     script_dir = Path(__file__).parent
     model_dir  = Path(model_dir)
@@ -91,149 +96,220 @@ def run_oos_validation(n_samples=200, model_dir='results_ace', seed=999, output_
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("\n" + "="*70)
-    print("OUT-OF-SAMPLE VALIDATION (ACE MODEL)")
+    print("OUT-OF-SAMPLE VALIDATION — ACE NPE MODEL")
     print("="*70)
-    print(f"  Samples:    {n_samples}")
-    print(f"  Seed:       {seed}  (different from training seed)")
-    print(f"  Model dir:  {model_dir}")
+    print(f"  Samples:            {n_samples}")
+    print(f"  Posterior draws:    {n_posterior_samples}")
+    print(f"  Seed:               {seed}  (different from training seed)")
+    print(f"  Model dir:          {model_dir}")
 
-    # Load model
-    model, feature_scaler, target_scaler, config, device, param_names = \
-        load_trained_model(model_dir)
+    # ---- Load posterior ----
+    posterior, feature_scaler, config, param_names, feature_cols = \
+        load_trained_posterior(model_dir)
 
-    # Generate fresh out-of-sample data
+    if hasattr(posterior, '_neural_net'):
+        posterior._neural_net.eval()
+
+    # ---- Generate fresh OOS data ----
     print(f"\nGenerating {n_samples} out-of-sample observations...")
     df_oos = generate_training_data(n_samples=n_samples, seed=seed)
 
-    feature_cols = config['feature_cols']
-    X_oos = df_oos[feature_cols].values
-    y_true = df_oos[param_names].values  # shape (n_samples, 3)
+    X_oos  = df_oos[feature_cols].values          # (n, n_features)
+    y_true = df_oos[param_names].values           # (n, 3)
 
-    # Predict
     X_scaled = feature_scaler.transform(X_oos)
-    X_tensor  = torch.FloatTensor(X_scaled).to(device)
 
-    with torch.no_grad():
-        y_pred_scaled = model(X_tensor).cpu().numpy()
+    # ---- Draw posterior samples ----
+    print(f"Drawing {n_posterior_samples} posterior samples per observation...")
+    pred_means, pred_stds, pred_ci_lo, pred_ci_hi = [], [], [], []
 
-    y_pred = target_scaler.inverse_transform(y_pred_scaled)  # shape (n_samples, 3)
+    for i in range(n_samples):
+        x_obs = torch.FloatTensor(X_scaled[i]).unsqueeze(0)
+        with torch.no_grad():
+            samples = posterior.sample(
+                (n_posterior_samples,), x=x_obs, show_progress_bars=False
+            )
+        s = samples.numpy()
+        pred_means.append(s.mean(0))
+        pred_stds.append(s.std(0))
+        pred_ci_lo.append(np.percentile(s, 2.5,  axis=0))
+        pred_ci_hi.append(np.percentile(s, 97.5, axis=0))
 
-    # ---- Bias summary ----
+    pred_means = np.array(pred_means)   # (n, 3)
+    pred_stds  = np.array(pred_stds)
+    pred_ci_lo = np.array(pred_ci_lo)
+    pred_ci_hi = np.array(pred_ci_hi)
+
+    # ---- Bias & calibration summary ----
     print("\n" + "="*70)
-    print("BIAS ANALYSIS")
+    print("BIAS & CALIBRATION ANALYSIS")
     print("="*70)
-    print(f"\n{'Parameter':<12} {'Mean True':<14} {'Mean Pred':<14} "
-          f"{'Bias':<12} {'|Bias|/SD':<12} {'R²':<8} {'RMSE':<8}")
-    print("-" * 80)
+    print(f"\n{'Parameter':<12} {'Mean True':<12} {'Mean Pred':<12} "
+          f"{'Bias':<10} {'|B|/SD':<10} {'R²':<8} {'RMSE':<8} "
+          f"{'Mean σ':<10} {'95% Cov':<8}")
+    print("-"*90)
 
     results_rows = []
     for i, name in enumerate(param_names):
-        true_i = y_true[:, i]
-        pred_i = y_pred[:, i]
-        bias   = np.mean(pred_i - true_i)
-        sd     = np.std(true_i)
-        rel_bias = abs(bias) / sd if sd > 0 else np.nan
-        r2     = r2_score(true_i, pred_i)
-        rmse   = np.sqrt(mean_squared_error(true_i, pred_i))
-        mae    = mean_absolute_error(true_i, pred_i)
+        true_i  = y_true[:, i]
+        pred_i  = pred_means[:, i]
+        std_i   = pred_stds[:, i]
+        ci_lo_i = pred_ci_lo[:, i]
+        ci_hi_i = pred_ci_hi[:, i]
 
-        print(f"{name:<12} {np.mean(true_i):<14.4f} {np.mean(pred_i):<14.4f} "
-              f"{bias:<12.4f} {rel_bias:<12.4f} {r2:<8.4f} {rmse:<8.4f}")
+        bias      = float(np.mean(pred_i - true_i))
+        sd        = float(np.std(true_i))
+        rel_bias  = abs(bias) / sd if sd > 0 else float('nan')
+        r2        = float(r2_score(true_i, pred_i))
+        rmse      = float(np.sqrt(mean_squared_error(true_i, pred_i)))
+        mae       = float(mean_absolute_error(true_i, pred_i))
+        mean_sig  = float(std_i.mean())
+        coverage  = float(np.mean((true_i >= ci_lo_i) & (true_i <= ci_hi_i)))
+
+        print(f"{name:<12} {np.mean(true_i):<12.4f} {np.mean(pred_i):<12.4f} "
+              f"{bias:<10.4f} {rel_bias:<10.4f} {r2:<8.4f} {rmse:<8.4f} "
+              f"{mean_sig:<10.4f} {coverage:<8.3f}")
 
         results_rows.append({
             'param':      name,
             'mean_true':  float(np.mean(true_i)),
             'mean_pred':  float(np.mean(pred_i)),
-            'bias':       float(bias),
-            'rel_bias':   float(rel_bias),
-            'r2':         float(r2),
-            'rmse':       float(rmse),
-            'mae':        float(mae),
+            'bias':       bias,
+            'rel_bias':   rel_bias,
+            'r2':         r2,
+            'rmse':       rmse,
+            'mae':        mae,
+            'mean_sigma': mean_sig,
+            'coverage_95': coverage,
         })
 
     print("="*70)
-    print("  bias      = mean(predicted) - mean(true)")
-    print("  |bias|/SD = bias relative to SD of true values (< 0.1 indicates low bias)")
+    print("  bias      = mean(posterior mean) - mean(true)")
+    print("  |B|/SD    = |bias| / SD(true)  (< 0.1 is good)")
+    print("  95% Cov   = fraction of true values inside 95% posterior CI  (target ≈ 0.95)")
 
     # ---- Save detailed predictions ----
-    df_out = pd.DataFrame(
-        np.hstack([y_true, y_pred]),
-        columns=[f"{p}_true" for p in param_names] + [f"{p}_pred" for p in param_names]
+    df_out_cols = (
+        [f"{p}_true"    for p in param_names] +
+        [f"{p}_pred"    for p in param_names] +
+        [f"{p}_std"     for p in param_names] +
+        [f"{p}_ci_lo"   for p in param_names] +
+        [f"{p}_ci_hi"   for p in param_names]
     )
-    # Also record the sum of predictions (should be close to 1)
-    df_out['sum_pred'] = df_out[[f"{p}_pred" for p in param_names]].sum(axis=1)
-    df_out['sum_true'] = df_out[[f"{p}_true" for p in param_names]].sum(axis=1)
+    df_out = pd.DataFrame(
+        np.hstack([y_true, pred_means, pred_stds, pred_ci_lo, pred_ci_hi]),
+        columns=df_out_cols,
+    )
+    df_out['sum_true'] = y_true.sum(axis=1)
+    df_out['sum_pred'] = pred_means.sum(axis=1)
 
     predictions_path = output_dir / 'oos_predictions.csv'
     df_out.to_csv(predictions_path, index=False)
     print(f"\n✓ Detailed predictions saved to: {predictions_path}")
 
-    # ---- Save bias summary ----
     summary_df = pd.DataFrame(results_rows)
-    summary_path = output_dir / 'oos_bias_summary.csv'
-    summary_df.to_csv(summary_path, index=False)
-    print(f"✓ Bias summary saved to: {summary_path}")
+    summary_df.to_csv(output_dir / 'oos_bias_summary.csv', index=False)
+    print(f"✓ Bias summary saved to: {output_dir / 'oos_bias_summary.csv'}")
 
     # ---- Plots ----
-    _plot_oos(y_true, y_pred, param_names, output_dir)
+    _plot_oos(y_true, pred_means, pred_stds, param_names, output_dir)
 
     return df_out
 
 
-def _plot_oos(y_true, y_pred, param_names, output_dir):
-    """Scatter plots (predicted vs true) and bias distribution plots."""
-    n = len(param_names)
+# ============================================================================
+# VISUALIZATION
+# ============================================================================
 
-    # --- Predicted vs True ---
-    fig, axes = plt.subplots(1, n, figsize=(5 * n, 5))
+def _plot_oos(y_true, pred_means, pred_stds, param_names, output_dir):
+    """Scatter plots with error bars and bias distribution histograms."""
+    n      = len(param_names)
+    n_cols = min(n, 4)
+    n_rows = math.ceil(n / n_cols)
+
+    # --- Posterior mean vs True ---
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 5 * n_rows))
     axes = np.array(axes).flatten()
 
     for i, name in enumerate(param_names):
-        ax     = axes[i]
-        t, p   = y_true[:, i], y_pred[:, i]
-        r2     = r2_score(t, p)
-        bias   = np.mean(p - t)
+        ax   = axes[i]
+        t    = y_true[:, i]
+        p    = pred_means[:, i]
+        s    = pred_stds[:, i]
+        r2   = r2_score(t, p)
+        bias = np.mean(p - t)
 
-        ax.scatter(t, p, alpha=0.5, s=30, edgecolors='k', linewidth=0.3)
+        ax.errorbar(t, p, yerr=s, fmt='o', alpha=0.4, markersize=4,
+                    elinewidth=0.6, capsize=2)
         lims = [min(t.min(), p.min()), max(t.max(), p.max())]
-        ax.plot(lims, lims, 'r--', lw=2, label='Perfect prediction')
-        ax.set_xlabel('True Value', fontsize=12)
-        ax.set_ylabel('Predicted Value', fontsize=12)
-        ax.set_title(f'{name}  (R² = {r2:.3f},  bias = {bias:+.4f})',
-                     fontsize=12, fontweight='bold')
-        ax.legend(fontsize=9)
+        ax.plot(lims, lims, 'r--', lw=2)
+        ax.set_xlabel('True Value', fontsize=10)
+        ax.set_ylabel('Posterior Mean', fontsize=10)
+        ax.set_title(f'{name}  (R²={r2:.3f}, bias={bias:+.4f})',
+                     fontsize=11, fontweight='bold')
         ax.grid(True, alpha=0.3)
 
-    plt.suptitle('ACE Model — Out-of-Sample Predictions vs True',
-                 fontsize=14, fontweight='bold')
+    for j in range(n, n_rows * n_cols):
+        fig.delaxes(axes[j])
+
+    plt.suptitle('ACE NPE — Out-of-Sample: Posterior Mean vs True  (error bars = posterior σ)',
+                 fontsize=12, fontweight='bold')
     plt.tight_layout()
     plt.savefig(output_dir / 'oos_predictions_vs_true.png', dpi=300, bbox_inches='tight')
     plt.close()
     print(f"✓ Saved predictions vs true plot")
 
     # --- Bias distribution (prediction error histogram) ---
-    fig, axes = plt.subplots(1, n, figsize=(5 * n, 4))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
     axes = np.array(axes).flatten()
 
     for i, name in enumerate(param_names):
         ax    = axes[i]
-        error = y_pred[:, i] - y_true[:, i]
+        error = pred_means[:, i] - y_true[:, i]
         ax.hist(error, bins=30, edgecolor='k', alpha=0.7)
-        ax.axvline(0,                color='r',      lw=2, linestyle='--', label='Zero bias')
-        ax.axvline(np.mean(error),   color='orange', lw=2, linestyle='-',
-                   label=f'Mean bias = {np.mean(error):+.4f}')
-        ax.set_xlabel('Predicted − True', fontsize=12)
-        ax.set_ylabel('Count', fontsize=12)
-        ax.set_title(f'{name}', fontsize=12, fontweight='bold')
-        ax.legend(fontsize=9)
+        ax.axvline(0,              color='r',      lw=2, linestyle='--', label='Zero bias')
+        ax.axvline(np.mean(error), color='orange', lw=2, linestyle='-',
+                   label=f'Mean = {np.mean(error):+.4f}')
+        ax.set_xlabel('Posterior Mean − True', fontsize=10)
+        ax.set_ylabel('Count', fontsize=10)
+        ax.set_title(f'{name}', fontsize=11, fontweight='bold')
+        ax.legend(fontsize=8)
         ax.grid(True, alpha=0.3)
 
-    plt.suptitle('ACE Model — Prediction Error Distribution (Out-of-Sample)',
-                 fontsize=14, fontweight='bold')
+    for j in range(n, n_rows * n_cols):
+        fig.delaxes(axes[j])
+
+    plt.suptitle('ACE NPE — Prediction Error Distribution (Out-of-Sample)',
+                 fontsize=12, fontweight='bold')
     plt.tight_layout()
     plt.savefig(output_dir / 'oos_bias_distribution.png', dpi=300, bbox_inches='tight')
     plt.close()
     print(f"✓ Saved bias distribution plot")
+
+    # --- Posterior width (σ) per observation ---
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
+    axes = np.array(axes).flatten()
+
+    for i, name in enumerate(param_names):
+        ax = axes[i]
+        ax.hist(pred_stds[:, i], bins=30, edgecolor='k', alpha=0.7, color='steelblue')
+        ax.axvline(pred_stds[:, i].mean(), color='r', lw=2, linestyle='--',
+                   label=f'Mean σ = {pred_stds[:, i].mean():.4f}')
+        ax.set_xlabel('Posterior σ', fontsize=10)
+        ax.set_ylabel('Count', fontsize=10)
+        ax.set_title(f'{name}', fontsize=11, fontweight='bold')
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.3)
+
+    for j in range(n, n_rows * n_cols):
+        fig.delaxes(axes[j])
+
+    plt.suptitle('ACE NPE — Posterior Width Distribution (Out-of-Sample)',
+                 fontsize=12, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig(output_dir / 'oos_posterior_width.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"✓ Saved posterior width plot")
 
 
 # ============================================================================
@@ -242,12 +318,14 @@ def _plot_oos(y_true, y_pred, param_names, output_dir):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description='Out-of-sample bias validation for the ACE neural network'
+        description='Out-of-sample bias validation for the ACE NPE model'
     )
     parser.add_argument('--n_samples', type=int, default=200,
-                        help='Number of out-of-sample predictions (default: 200)')
-    parser.add_argument('--model_dir', type=str, default='results_ace',
-                        help='Directory containing trained model (default: results_ace)')
+                        help='Number of out-of-sample observations (default: 200)')
+    parser.add_argument('--model_dir', type=str, default='results_ace_npe',
+                        help='Directory containing trained posterior (default: results_ace_npe)')
+    parser.add_argument('--n_posterior_samples', type=int, default=500,
+                        help='Posterior draws per observation (default: 500)')
     parser.add_argument('--seed', type=int, default=999,
                         help='Random seed for OOS data generation (default: 999)')
     args = parser.parse_args()
@@ -255,5 +333,6 @@ if __name__ == "__main__":
     run_oos_validation(
         n_samples=args.n_samples,
         model_dir=args.model_dir,
+        n_posterior_samples=args.n_posterior_samples,
         seed=args.seed,
     )

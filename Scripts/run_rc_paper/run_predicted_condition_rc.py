@@ -1,10 +1,4 @@
 """
-Simulation script for predicted condition: two independent univariate Direct AM models
-run jointly within a single bivariate simulation (cross-trait parameters = 0).
-  - Trait 1: Direct AM, AE model (am11=0.3343, no vertical transmission, no social homogamy)
-             Source: results_npe_unweighted_01DirAM_AE posterior summary (means)
-  - Trait 2: Direct AM, AFE model (am22=0.3288, f22=0.0111, s22=0.2600)
-             Source: results_npe_unweighted_01DirAM_AFE posterior summary (means)
 Runs TOTAL_ITERATIONS with N=40000. Saves final 3 generations and summary statistics.
 """
 
@@ -27,31 +21,36 @@ from extract_measures import extract_individual_measures, compute_correlations_f
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_uni_DirAM")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_uni_DirAM")
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM")
 
-# Two independent univariate Direct AM conditions combined in one bivariate simulation.
-# All cross-trait parameters are 0, making the two traits statistically independent.
+# Bivariate AE + latent AM condition (02_AElatentAM).
+# Latent (genome-wide) AM on trait 2 only (am22); traits are genetically and
+# environmentally correlated (rg, re). No vertical transmission or social homogamy.
+# Parameter values are the posterior medians from the NPE fit to the observed data.
 CONDITION = {
-    'name': 'Predicted_Condition_uni_DirAM',
-    # Trait 1: Direct AM, AE model (posterior means from 01DirAM_AE)
-    'prop_h2_latent1': 0.7414,
-    'vg1': 0.2325,
-    'am11': 0.3343,
+    'name': 'Predicted_Condition_02AElatentAM',
+    # Trait 1: AE model, latent genetic variance (posterior median)
+    'prop_h2_latent1': 0.7811,
+    'vg1': 0.4338,
+    'am11': 0.0,      # no direct AM on trait 1
     'f11': 0.0,       # AE model: no vertical transmission
-    # Trait 2: Direct AM, AFE model (posterior means from 01DirAM_AFE)
-    'prop_h2_latent2': 0.7082,
-    'vg2': 0.2708,
-    'am22': 0.3288,
-    'f22': 0.0111,    # AFE model: vertical transmission
-    's22': 0.2600,    # AFE model: social homogamy
-    # Cross-trait parameters (zero: independent univariate treatment)
+    # Trait 2: AE model with latent AM (posterior median)
+    'prop_h2_latent2': 0.7063,
+    'vg2': 0.4981,
+    'am22': 0.6430,   # latent AM on trait 2
+    'f22': 0.0,       # AE model: no vertical transmission
+    's11': 0.0,       # no family environment (trait 1)
+    's12': 0.0,       # no cross-trait family environment
+    's21': 0.0,       # no cross-trait family environment
+    's22': 0.0,       # no family environment (trait 2)
+    # Cross-trait parameters (posterior medians)
     'f12': 0.0,
     'f21': 0.0,
     'am12': 0.0,
     'am21': 0.0,
-    'rg': 0.0,
-    're': 0.0,
+    'rg': 0.7719,     # genetic correlation
+    're': 0.3713,     # environmental correlation
 }
 
 # Simulation parameters
@@ -87,9 +86,10 @@ RELATIONSHIP_TYPES = [
 def setup_matrices(params):
     """
     Setup covariance and other matrices based on simulation parameters.
-    Traits are treated as independent (all cross-trait params = 0).
-    Trait 1: AE model  - no vertical transmission, no social homogamy (am11 on diagonal)
-    Trait 2: AFE model - vertical transmission f22, social homogamy s22 (am22 on diagonal)
+    Condition 02_AElatentAM: bivariate AE model with latent AM on trait 2.
+    Trait 1: AE model  - no VT, no direct AM (am11=0)
+    Trait 2: AE model  - no VT, latent AM via am22
+    Cross-trait: genetic correlation rg, environmental correlation re
     """
     vg1 = params['vg1']
     vg2 = params['vg2']
@@ -132,17 +132,13 @@ def setup_matrices(params):
                        [params['am21'], params['am22']]])
     am_list = [am_mat.copy() for _ in range(N_GENERATIONS)]
 
-    # Vertical transmission matrix
-    # Trait 1 (AE):  f11=0, no cross-trait
-    # Trait 2 (AFE): f22=0.0111, no cross-trait
+    # Vertical transmission matrix (both traits: AE model, no VT)
     f_mat = np.array([[params['f11'], params['f12']],
                        [params['f21'], params['f22']]])
 
-    # Social homogamy matrix
-    # Trait 1 (AE):  s11=0
-    # Trait 2 (AFE): s22=0.2600
-    s_mat = np.array([[0.0,            0.0],
-                       [0.0, params['s22']]])
+    # Family environment (social homogamy) matrix
+    s_mat = np.array([[params['s11'], params['s12']],
+                       [params['s21'], params['s22']]])
 
     return {
         'cove_mat': cove_mat,
@@ -386,9 +382,10 @@ def run_predicted_condition(condition, scratch_base, project_base):
     
     print(f"\n{'#'*70}")
     print(f"# Starting simulations: {condition_name}")
-    print(f"# Two independent univariate Direct AM models (rg=0, no cross-trait effects)")
-    print(f"# Trait 1 (AE):  prop_h2_latent1={condition['prop_h2_latent1']:.4f}, vg1={condition['vg1']:.4f}, am11={condition['am11']:.4f}")
-    print(f"# Trait 2 (AFE): prop_h2_latent2={condition['prop_h2_latent2']:.4f}, vg2={condition['vg2']:.4f}, am22={condition['am22']:.4f}, f22={condition['f22']:.4f}, s22={condition['s22']:.4f}")
+    print(f"# Condition 02_AElatentAM: bivariate AE model, latent AM on trait 2")
+    print(f"# Trait 1 (AE): prop_h2_latent1={condition['prop_h2_latent1']:.4f}, vg1={condition['vg1']:.4f}, am11={condition['am11']:.4f}")
+    print(f"# Trait 2 (AE+latentAM): prop_h2_latent2={condition['prop_h2_latent2']:.4f}, vg2={condition['vg2']:.4f}, am22={condition['am22']:.4f}")
+    print(f"# Cross-trait: rg={condition['rg']:.4f}, re={condition['re']:.4f}")
     print(f"# Array Task {task_id}: Running iterations {start_iter+1} to {end_iter}")
     print(f"# ({n_iterations} iterations in this task)")
     print(f"{'#'*70}\n")
@@ -497,7 +494,7 @@ def main():
     Main execution function.
     """
     print("\n" + "="*70)
-    print("PREDICTED CONDITION SIMULATION SCRIPT - INDEPENDENT UNIVARIATE DIRECT AM")
+    print("PREDICTED CONDITION SIMULATION SCRIPT - 02_AElatentAM")
     print("="*70)
     print(f"Scratch base directory: {SCRATCH_BASE}")
     print(f"Project base directory: {PROJECT_BASE}")
@@ -506,18 +503,18 @@ def main():
     print(f"Population size: {POP_SIZE}")
     print(f"Number of generations: {N_GENERATIONS} (saving final 3)")
     print(f"Number of causal variants: {N_CV}")
-    print(f"\nTrait 1 parameters (AE model, 01DirAM_AE posterior means):")
+    print(f"\nTrait 1 parameters (AE model, 02AElatentAM posterior medians):")
     print(f"  prop_h2_latent1={CONDITION['prop_h2_latent1']:.4f}, vg1={CONDITION['vg1']:.4f}, am11={CONDITION['am11']:.4f}, f11={CONDITION['f11']:.4f}")
-    print(f"\nTrait 2 parameters (AFE model, 01DirAM_AFE posterior means):")
-    print(f"  prop_h2_latent2={CONDITION['prop_h2_latent2']:.4f}, vg2={CONDITION['vg2']:.4f}, am22={CONDITION['am22']:.4f}, f22={CONDITION['f22']:.4f}, s22={CONDITION['s22']:.4f}")
-    print(f"\nCross-trait: rg={CONDITION['rg']:.4f}, re={CONDITION['re']:.4f} (independent traits)")
+    print(f"\nTrait 2 parameters (AE + latent AM, 02AElatentAM posterior medians):")
+    print(f"  prop_h2_latent2={CONDITION['prop_h2_latent2']:.4f}, vg2={CONDITION['vg2']:.4f}, am22={CONDITION['am22']:.4f}, f22={CONDITION['f22']:.4f}")
+    print(f"\nCross-trait (posterior medians): rg={CONDITION['rg']:.4f}, re={CONDITION['re']:.4f}")
     print("="*70 + "\n")
     
     # Run the predicted condition
     run_predicted_condition(CONDITION, SCRATCH_BASE, PROJECT_BASE)
     
     print("\n" + "="*70)
-    print(f"SIMULATION COMPLETED - {CONDITION['name']}")
+    print(f"SIMULATION COMPLETED - {CONDITION['name']} (02_AElatentAM posterior medians)")
     print("="*70)
 
 if __name__ == "__main__":

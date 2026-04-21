@@ -40,11 +40,11 @@ agnostic to batch size.
 Usage
 -----
     python train_npe_pgs_and_pheno.py \
-        --data nn_training_01DirAM.csv \
-        --output ./results_npe_unweighted_01DirAM_AE \
+        --data nn_training_02AElatentAM.csv \
+        --output ./results_npe_unweighted_02AElatentAM \
         --epochs 500 \
-        --features_file ./results_npe_unweighted_01DirAM_AE/features.txt \
-        --params_file ./results_npe_unweighted_01DirAM_AE/params.txt \
+        --features_file ./results_npe_unweighted_02AElatentAM/features.txt \
+        --params_file ./results_npe_unweighted_02AElatentAM/params.txt \
         --pheno_weight_decay 0 \
         --pgs_weight_decay 0
 """

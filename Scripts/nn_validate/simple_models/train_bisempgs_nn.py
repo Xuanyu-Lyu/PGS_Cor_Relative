@@ -1,36 +1,39 @@
 """
-Neural Posterior Estimation (NPE) for ACE Parameter Prediction
+Neural Posterior Estimation (NPE) for BiSEMPGS Parameter Prediction
 
-Uses sbi (SNPE-C / APT) to learn the full posterior over A, C, E variance
-components given MZ and DZ twin covariance matrix elements.
+Uses sbi (SNPE-C / APT) to learn the full posterior over the 14 bivariate
+SEM-PGS model parameters given the unique elements of the 14×14 theoretical
+covariance matrix.
 
 Architecture overview
 ---------------------
-1. **Embedding network** (``ACEEmbeddingNet``):
-   A small LayerNorm MLP that compresses the 4 (or 5) input features into a
-   dense summary vector.  LayerNorm is used instead of BatchNorm1d so that
-   the network works correctly when called with batch_size=1 during posterior
-   sampling.
+1. **Embedding network** (``BiSEMPGSEmbeddingNet``):
+   A LayerNorm MLP that compresses the 46 input features (45 unique covariance
+   elements + N_obs) into a dense summary vector.  LayerNorm is used instead
+   of BatchNorm1d so that the network works correctly when called with
+   batch_size=1 during posterior sampling.
 
 2. **Normalizing Flow** (Neural Spline Flow, via ``sbi``):
    Conditions on the embedding vector and outputs the full posterior over the
-   3 ACE parameters.
+   14 BiSEMPGS parameters.
 
-Input features  (4):  mz_var, mz_cov, dz_var, dz_cov
-                      Optionally include N_pairs with --include_n_pairs
-Output targets  (3):  A (additive genetic), C (shared env), E (unique env)
+Input features  (46): 45 unique elements of the 14×14 sample covariance matrix
+                       (drawn from the 12 distinct 2×2 blocks; see BiSEMPGSnn.py)
+                       + N_obs (controls estimation noise)
+Output targets  (14): vg1, vg2, rg, re,
+                       prop_h2_latent1, prop_h2_latent2,
+                       am11, am12, am21, am22,
+                       f11, f12, f21, f22
 
 Usage:
-    # 1. Generate training data first
-    python generate_ace_data.py --n_samples 20000
+    # 1. Generate training data
+    python generate_bisempgs_data.py --n_samples 50000
 
     # 2. Train
-    python train_ace_nn.py --data ace_training_data.csv --epochs 500
-
-    # 3. Optionally add N_pairs as a feature
-    python train_ace_nn.py --data ace_training_data.csv --include_n_pairs
+    python train_bisempgs_nn.py --data bisempgs_training_data.csv --epochs 500
 """
 
+import sys
 import math
 import json
 import pickle
@@ -52,6 +55,10 @@ from sbi.inference import SNPE
 from sbi.utils import BoxUniform
 from sbi.neural_nets import posterior_nn
 
+# Allow importing BiSEMPGSnn from the same directory
+sys.path.insert(0, str(Path(__file__).parent))
+from BiSEMPGSnn import unique_feature_names, N_UNIQUE_FEATURES
+
 warnings.filterwarnings('ignore')
 torch.manual_seed(42)
 np.random.seed(42)
@@ -60,7 +67,15 @@ np.random.seed(42)
 # CONFIGURATION
 # ============================================================================
 
-ACE_PARAM_NAMES = ['A', 'C', 'E']
+BISEMPGS_PARAM_NAMES = [
+    'vg1', 'vg2', 'rg', 're',
+    'prop_h2_latent1', 'prop_h2_latent2',
+    'am11', 'am12', 'am21', 'am22',
+    'f11', 'f12', 'f21', 'f22',
+]
+
+# Total input features: 45 unique cov elements + N_obs
+N_FEATURES = N_UNIQUE_FEATURES + 1   # 46
 
 
 # ============================================================================
@@ -77,45 +92,46 @@ def load_and_clean_data(data_path):
     print(f"✓ Loaded {len(df)} samples with {len(df.columns)} columns")
 
     initial_samples = len(df)
-    feature_cols  = ['mz_var', 'mz_cov', 'dz_var', 'dz_cov']
-    required_cols = feature_cols + ACE_PARAM_NAMES
 
-    missing_required = [c for c in required_cols if c not in df.columns]
-    if missing_required:
-        raise ValueError(f"Required columns missing from data: {missing_required}")
+    # Identify feature columns
+    cov_cols = unique_feature_names()   # 45 names
+    feat_cols = cov_cols + ['N_obs']
+    param_cols = [f'param_{p}' for p in BISEMPGS_PARAM_NAMES]
 
+    missing_feat  = [c for c in feat_cols  if c not in df.columns]
+    missing_param = [c for c in param_cols if c not in df.columns]
+    if missing_feat or missing_param:
+        raise ValueError(
+            f"Required columns missing from data.\n"
+            f"  Features missing: {missing_feat}\n"
+            f"  Params missing:   {missing_param}"
+        )
+
+    required_cols = feat_cols + param_cols
     df = df.dropna(subset=required_cols).copy()
     print(f"✓ Removed {initial_samples - len(df)} rows with missing values")
-
-    invalid_mz = (df['mz_cov'].abs() > df['mz_var'].abs())
-    invalid_dz = (df['dz_cov'].abs() > df['dz_var'].abs())
-    n_invalid = (invalid_mz | invalid_dz).sum()
-    if n_invalid > 0:
-        df = df[~(invalid_mz | invalid_dz)].copy()
-        print(f"✓ Removed {n_invalid} rows with invalid covariance matrices")
-
     print(f"\nFinal sample size: {len(df)}")
     print("="*70)
-    return df
+    return df, feat_cols, param_cols
 
 
 # ============================================================================
 # EMBEDDING NETWORK
 # ============================================================================
 
-class ACEEmbeddingNet(nn.Module):
+class BiSEMPGSEmbeddingNet(nn.Module):
     """
-    Lightweight embedding network for NPE on the ACE model.
+    Embedding network for NPE on the BiSEMPGS model.
 
     Uses LayerNorm instead of BatchNorm1d so that it works correctly
     when called with a single sample during posterior.sample().
     The ``output_dim`` attribute is required by sbi.
     """
 
-    def __init__(self, n_features=4, hidden_sizes=None, dropout_rate=0.2):
+    def __init__(self, n_features=46, hidden_sizes=None, dropout_rate=0.3):
         super().__init__()
         if hidden_sizes is None:
-            hidden_sizes = [64, 64, 32]
+            hidden_sizes = [256, 256, 128, 128]
 
         layers = []
         in_size = n_features
@@ -173,7 +189,7 @@ def evaluate_npe(posterior, X_test, y_test, param_names, output_dir,
     y_true     = y_test[:n_test]
 
     results = {}
-    print(f"\n{'Parameter':<22} {'R²':<10} {'RMSE':<10} {'MAE':<10} {'Mean Posterior σ'}")
+    print(f"\n{'Parameter':<25} {'R²':<10} {'RMSE':<10} {'MAE':<10} {'Mean σ'}")
     print("-"*70)
 
     for i, param in enumerate(param_names):
@@ -185,12 +201,12 @@ def evaluate_npe(posterior, X_test, y_test, param_names, output_dir,
         mae  = mean_absolute_error(y_t, y_p)
         results[param] = dict(r2=r2, rmse=rmse, mae=mae, mean_sigma=float(y_s.mean()),
                               true=y_t, pred_mean=y_p, pred_std=y_s)
-        print(f"{param:<22} {r2:<10.4f} {rmse:<10.4f} {mae:<10.4f} {y_s.mean():.4f}")
+        print(f"{param:<25} {r2:<10.4f} {rmse:<10.4f} {mae:<10.4f} {y_s.mean():.4f}")
 
     overall_r2   = r2_score(y_true.flatten(), pred_means.flatten())
     overall_rmse = np.sqrt(mean_squared_error(y_true.flatten(), pred_means.flatten()))
     print("-"*70)
-    print(f"{'OVERALL':<22} {overall_r2:<10.4f} {overall_rmse:<10.4f}")
+    print(f"{'OVERALL':<25} {overall_r2:<10.4f} {overall_rmse:<10.4f}")
     print("="*70 + "\n")
 
     metrics_dict = {
@@ -212,7 +228,7 @@ def evaluate_npe(posterior, X_test, y_test, param_names, output_dir,
 def plot_npe_results(results, output_dir, param_names):
     """Prediction scatter plots and posterior uncertainty bar plot."""
     n_params = len(param_names)
-    n_cols   = min(n_params, 4)
+    n_cols   = 4
     n_rows   = math.ceil(n_params / n_cols)
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 5 * n_rows))
     axes = np.array(axes).flatten()
@@ -227,9 +243,9 @@ def plot_npe_results(results, output_dir, param_names):
         ax.errorbar(y_t, y_p, yerr=y_s, fmt='o', alpha=0.4, markersize=3, elinewidth=0.5)
         lo, hi = min(y_t.min(), y_p.min()), max(y_t.max(), y_p.max())
         ax.plot([lo, hi], [lo, hi], 'r--', lw=2)
-        ax.set_xlabel('True', fontsize=10)
-        ax.set_ylabel('Predicted (posterior mean)', fontsize=10)
-        ax.set_title(f'{param}  (R²={r2:.3f})', fontsize=11, fontweight='bold')
+        ax.set_xlabel('True', fontsize=9)
+        ax.set_ylabel('Predicted (posterior mean)', fontsize=9)
+        ax.set_title(f'{param}  (R²={r2:.3f})', fontsize=10, fontweight='bold')
         ax.grid(True, alpha=0.3)
 
     for j in range(n_params, n_rows * n_cols):
@@ -241,16 +257,17 @@ def plot_npe_results(results, output_dir, param_names):
     plt.close()
 
     # Posterior uncertainty bar chart
-    fig, ax = plt.subplots(figsize=(max(6, n_params * 2), 4))
+    fig, ax = plt.subplots(figsize=(max(10, n_params), 4))
     mean_sigmas = [results[p]['mean_sigma'] for p in param_names]
     bars = ax.bar(param_names, mean_sigmas, color='steelblue', edgecolor='white')
     ax.set_xlabel('Parameter')
     ax.set_ylabel('Mean Posterior σ')
     ax.set_title('Posterior Uncertainty per Parameter')
+    ax.tick_params(axis='x', rotation=45)
     ax.grid(True, axis='y', alpha=0.3)
     for bar, val in zip(bars, mean_sigmas):
         ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.0005,
-                f'{val:.4f}', ha='center', va='bottom', fontsize=9)
+                f'{val:.3f}', ha='center', va='bottom', fontsize=7)
     plt.tight_layout()
     plt.savefig(output_dir / 'posterior_uncertainty.png', dpi=300, bbox_inches='tight')
     plt.close()
@@ -263,26 +280,24 @@ def plot_npe_results(results, output_dir, param_names):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Train NPE (sbi SNPE-C) for ACE parameter estimation'
+        description='Train NPE (sbi SNPE-C) for BiSEMPGS parameter estimation'
     )
-    parser.add_argument('--data', type=str, default='ace_training_data.csv',
-                        help='Path to training CSV (default: ace_training_data.csv)')
-    parser.add_argument('--output', type=str, default='results_ace_npe',
-                        help='Output directory (default: results_ace_npe)')
+    parser.add_argument('--data', type=str, default='bisempgs_training_data.csv',
+                        help='Path to training CSV (default: bisempgs_training_data.csv)')
+    parser.add_argument('--output', type=str, default='results_bisempgs_npe',
+                        help='Output directory (default: results_bisempgs_npe)')
     parser.add_argument('--epochs', type=int, default=500,
                         help='Maximum training epochs (default: 500)')
     parser.add_argument('--stop_after_epochs', type=int, default=50,
                         help='Early stopping patience (default: 50)')
-    parser.add_argument('--batch_size', type=int, default=256,
-                        help='Training mini-batch size (default: 256)')
+    parser.add_argument('--batch_size', type=int, default=128,
+                        help='Training mini-batch size (default: 128)')
     parser.add_argument('--lr', type=float, default=5e-4,
                         help='Learning rate (default: 5e-4)')
-    parser.add_argument('--weight_decay', type=float, default=1e-4,
-                        help='AdamW weight decay (default: 1e-4)')
-    parser.add_argument('--hidden_sizes', type=int, nargs='+', default=[64, 64, 32],
-                        help='Embedding network hidden layer widths (default: 64 64 32)')
-    parser.add_argument('--dropout', type=float, default=0.2,
-                        help='Dropout rate (default: 0.2)')
+    parser.add_argument('--hidden_sizes', type=int, nargs='+', default=[256, 256, 128, 128],
+                        help='Embedding network hidden layer widths (default: 256 256 128 128)')
+    parser.add_argument('--dropout', type=float, default=0.3,
+                        help='Dropout rate (default: 0.3)')
     parser.add_argument('--flow_type', type=str, default='nsf',
                         choices=['nsf', 'maf', 'maf_rqs', 'mdn'],
                         help='Normalizing flow type (default: nsf)')
@@ -294,8 +309,6 @@ def main():
                         help='Buffer fraction around training data range for prior (default: 0.1)')
     parser.add_argument('--n_posterior_samples', type=int, default=500,
                         help='Posterior samples per test observation for evaluation (default: 500)')
-    parser.add_argument('--include_n_pairs', action='store_true',
-                        help='Include N_pairs as an input feature')
     parser.add_argument('--device', type=str, default='auto',
                         help='Device: auto, cpu, cuda, mps (default: auto)')
     args = parser.parse_args()
@@ -310,7 +323,7 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("\n" + "="*70)
-    print("ACE NEURAL POSTERIOR ESTIMATION (SNPE-C)")
+    print("BiSEMPGS NEURAL POSTERIOR ESTIMATION (SNPE-C)")
     print("="*70)
     print(f"Output: {output_dir}")
     print("="*70)
@@ -328,15 +341,10 @@ def main():
     print(f"\nUsing device: {device}")
 
     # ---- Load data ----
-    df = load_and_clean_data(data_path)
+    df, feat_cols, param_cols = load_and_clean_data(data_path)
 
-    feature_cols = ['mz_var', 'mz_cov', 'dz_var', 'dz_cov']
-    if args.include_n_pairs and 'N_pairs' in df.columns:
-        feature_cols.append('N_pairs')
-        print("  Including N_pairs as feature")
-
-    X = df[feature_cols].values
-    y = df[ACE_PARAM_NAMES].values
+    X = df[feat_cols].values           # (n, 46)
+    y = df[param_cols].values          # (n, 14)
 
     # ---- Train/val/test split (70/15/15) ----
     n_samples = len(df)
@@ -371,10 +379,10 @@ def main():
     prior_lower = torch.tensor(y_min - buffer, dtype=torch.float32)
     prior_upper = torch.tensor(y_max + buffer, dtype=torch.float32)
 
-    print(f"\n{'Parameter':<12} {'Lower':<12} {'Upper':<12}")
-    print("-"*38)
-    for p, lo, hi in zip(ACE_PARAM_NAMES, prior_lower, prior_upper):
-        print(f"  {p:<10} {lo.item():+.4f}      {hi.item():+.4f}")
+    print(f"\n{'Parameter':<22} {'Lower':<12} {'Upper':<12}")
+    print("-"*48)
+    for p, lo, hi in zip(BISEMPGS_PARAM_NAMES, prior_lower, prior_upper):
+        print(f"  {p:<20} {lo.item():+.4f}      {hi.item():+.4f}")
 
     prior = BoxUniform(low=prior_lower, high=prior_upper, device=str(device))
 
@@ -384,14 +392,14 @@ def main():
     print("="*70)
 
     n_features    = X_train.shape[1]
-    embedding_net = ACEEmbeddingNet(
+    embedding_net = BiSEMPGSEmbeddingNet(
         n_features=n_features,
         hidden_sizes=args.hidden_sizes,
         dropout_rate=args.dropout,
     )
 
     print(f"\nEmbedding network:")
-    print(f"  Input features : {n_features}")
+    print(f"  Input features : {n_features}  ({N_UNIQUE_FEATURES} cov elements + N_obs)")
     print(f"  Hidden layers  : {args.hidden_sizes}")
     print(f"  Output dim     : {embedding_net.output_dim}  (→ Normalizing Flow condition)")
     print(f"  Parameters     : {sum(p.numel() for p in embedding_net.parameters()):,}")
@@ -456,10 +464,10 @@ def main():
 
     # ---- Evaluate and plot ----
     results = evaluate_npe(
-        posterior, X_test_s, y_test, ACE_PARAM_NAMES,
+        posterior, X_test_s, y_test, BISEMPGS_PARAM_NAMES,
         output_dir, n_posterior_samples=args.n_posterior_samples,
     )
-    plot_npe_results(results, output_dir, ACE_PARAM_NAMES)
+    plot_npe_results(results, output_dir, BISEMPGS_PARAM_NAMES)
 
     # ---- Save config ----
     config = {
@@ -468,10 +476,11 @@ def main():
         'flow_hidden': args.flow_hidden,
         'flow_transforms': args.flow_transforms,
         'n_features': n_features,
-        'feature_cols': feature_cols,
+        'n_unique_cov_features': N_UNIQUE_FEATURES,
+        'feature_cols': feat_cols,
+        'param_names': BISEMPGS_PARAM_NAMES,
         'hidden_sizes': args.hidden_sizes,
         'dropout_rate': args.dropout,
-        'param_names': ACE_PARAM_NAMES,
         'prior_lower': prior_lower.tolist(),
         'prior_upper': prior_upper.tolist(),
     }

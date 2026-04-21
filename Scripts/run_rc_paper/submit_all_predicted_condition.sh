@@ -24,7 +24,7 @@ echo "Submitted simulation array job: ${ARRAY_JOB_ID}"
 COMPILE_JOB_ID=$(sbatch \
     --dependency=afterok:${ARRAY_JOB_ID} \
     --parsable \
-    --job-name=compile_pred_cond_uni \
+    --job-name=compile_pred_cond_02AElatentAM \
     --qos=preemptable \
     --nodes=1 \
     --ntasks=1 \
@@ -32,8 +32,8 @@ COMPILE_JOB_ID=$(sbatch \
     --mem=16G \
     --time=01:00:00 \
     --chdir "${RUN_RC_DIR}" \
-    --output="${RUN_RC_DIR}/slurm_logs/compile_pred_cond_uni_%j.out" \
-    --error="${RUN_RC_DIR}/slurm_logs/compile_pred_cond_uni_%j.err" \
+    --output="${RUN_RC_DIR}/slurm_logs/compile_pred_cond_02AElatentAM_%j.out" \
+    --error="${RUN_RC_DIR}/slurm_logs/compile_pred_cond_02AElatentAM_%j.err" \
     --wrap "source /curc/sw/anaconda3/latest && conda activate /projects/xuly4739/general_env && python -u ${SCRIPT_DIR}/compile_predicted_condition.py")
 
 if [[ -z "${COMPILE_JOB_ID}" ]]; then
@@ -44,4 +44,4 @@ echo "Submitted compile job:          ${COMPILE_JOB_ID}  (depends on ${ARRAY_JOB
 echo ""
 echo "Monitor with:"
 echo "  squeue -u \$USER"
-echo "  tail -f ${RUN_RC_DIR}/slurm_logs/compile_pred_cond_uni_${COMPILE_JOB_ID}.out"
+echo "  tail -f ${RUN_RC_DIR}/slurm_logs/compile_pred_cond_02AElatentAM_${COMPILE_JOB_ID}.out"
