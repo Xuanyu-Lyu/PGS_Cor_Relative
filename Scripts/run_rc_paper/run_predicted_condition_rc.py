@@ -21,36 +21,37 @@ from extract_measures import extract_individual_measures, compute_correlations_f
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM")
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_03EnvLatentAM")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_03EnvLatentAM")
 
-# Bivariate AE + latent AM condition (02_AElatentAM).
+# Bivariate ACE + latent AM condition (03_EnvLatentAM).
 # Latent (genome-wide) AM on trait 2 only (am22); traits are genetically and
-# environmentally correlated (rg, re). No vertical transmission or social homogamy.
+# environmentally correlated (rg, re). Includes vertical transmission (f11, f22,
+# f12, f21) and shared family environment / social homogamy (s11, s22, s12, s21).
 # Parameter values are the posterior medians from the NPE fit to the observed data.
 CONDITION = {
-    'name': 'Predicted_Condition_02AElatentAM',
-    # Trait 1: AE model, latent genetic variance (posterior median)
-    'prop_h2_latent1': 0.7811,
-    'vg1': 0.4338,
+    'name': 'Predicted_Condition_03EnvLatentAM',
+    # Trait 1: ACE model, latent genetic variance (posterior median)
+    'prop_h2_latent1': 0.7770,
+    'vg1': 0.4706,
     'am11': 0.0,      # no direct AM on trait 1
-    'f11': 0.0,       # AE model: no vertical transmission
-    # Trait 2: AE model with latent AM (posterior median)
-    'prop_h2_latent2': 0.7063,
-    'vg2': 0.4981,
-    'am22': 0.6430,   # latent AM on trait 2
-    'f22': 0.0,       # AE model: no vertical transmission
-    's11': 0.0,       # no family environment (trait 1)
-    's12': 0.0,       # no cross-trait family environment
-    's21': 0.0,       # no cross-trait family environment
-    's22': 0.0,       # no family environment (trait 2)
+    'f11': 0.0703,    # vertical transmission (trait 1)
+    # Trait 2: ACE model with latent AM (posterior median)
+    'prop_h2_latent2': 0.7193,
+    'vg2': 0.6134,
+    'am22': 0.6645,   # latent AM on trait 2
+    'f22': 0.1443,    # vertical transmission (trait 2)
+    's11': 0.2029,    # family environment (trait 1)
+    's12': 0.1844,    # cross-trait family environment
+    's21': 0.1944,    # cross-trait family environment
+    's22': 0.2073,    # family environment (trait 2)
     # Cross-trait parameters (posterior medians)
-    'f12': 0.0,
-    'f21': 0.0,
+    'f12': 0.0354,
+    'f21': 0.1155,
     'am12': 0.0,
     'am21': 0.0,
-    'rg': 0.7719,     # genetic correlation
-    're': 0.3713,     # environmental correlation
+    'rg': 0.6610,     # genetic correlation
+    're': 0.2798,     # environmental correlation
 }
 
 # Simulation parameters
@@ -86,10 +87,10 @@ RELATIONSHIP_TYPES = [
 def setup_matrices(params):
     """
     Setup covariance and other matrices based on simulation parameters.
-    Condition 02_AElatentAM: bivariate AE model with latent AM on trait 2.
-    Trait 1: AE model  - no VT, no direct AM (am11=0)
-    Trait 2: AE model  - no VT, latent AM via am22
-    Cross-trait: genetic correlation rg, environmental correlation re
+    Condition 03_EnvLatentAM: bivariate ACE model with latent AM on trait 2.
+    Trait 1: ACE model - vertical transmission (f11), family environment (s11), no direct AM
+    Trait 2: ACE model - vertical transmission (f22), family environment (s22), latent AM via am22
+    Cross-trait: genetic correlation rg, environmental correlation re, cross-VT (f12, f21), cross-env (s12, s21)
     """
     vg1 = params['vg1']
     vg2 = params['vg2']

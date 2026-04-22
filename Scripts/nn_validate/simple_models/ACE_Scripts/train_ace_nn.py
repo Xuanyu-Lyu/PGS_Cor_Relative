@@ -25,10 +25,10 @@ Usage:
     python generate_ace_data.py --n_samples 20000
 
     # 2. Train
-    python train_ace_nn.py --data ace_training_data.csv --epochs 500
+    python train_ace_nn.py --data ace_training_data_N2000.csv --epochs 500 --device cpu --output results_ace_npe_no_n
 
     # 3. Optionally add N_pairs as a feature
-    python train_ace_nn.py --data ace_training_data.csv --include_n_pairs
+    python train_ace_nn.py --data ace_training_data.csv --include_n_pairs --epochs 500 --device cpu
 """
 
 import math
@@ -51,6 +51,7 @@ from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 from sbi.inference import SNPE
 from sbi.utils import BoxUniform
 from sbi.neural_nets import posterior_nn
+from scipy.stats import gaussian_kde
 
 warnings.filterwarnings('ignore')
 torch.manual_seed(42)
@@ -61,6 +62,19 @@ np.random.seed(42)
 # ============================================================================
 
 ACE_PARAM_NAMES = ['A', 'C', 'E']
+
+
+def map_from_samples(samples: np.ndarray) -> np.ndarray:
+    """
+    Approximate the MAP (mode) for each parameter independently using a 1-D
+    kernel density estimate on the posterior samples.
+    """
+    map_est = np.empty(samples.shape[1])
+    for i in range(samples.shape[1]):
+        kde = gaussian_kde(samples[:, i])
+        xs  = np.linspace(samples[:, i].min(), samples[:, i].max(), 1000)
+        map_est[i] = xs[np.argmax(kde(xs))]
+    return map_est
 
 
 # ============================================================================
@@ -140,67 +154,85 @@ class ACEEmbeddingNet(nn.Module):
 # ============================================================================
 
 def evaluate_npe(posterior, X_test, y_test, param_names, output_dir,
-                 n_posterior_samples=500, device=None):
+                 n_posterior_samples=500, device=None, n_eval=500):
     """
     Evaluate the trained NPE on the held-out test set.
 
     For each test observation, draw ``n_posterior_samples`` samples from the
     posterior and use their mean as the point estimate and std as uncertainty.
+
+    Evaluation always runs on CPU regardless of training device: MPS has high
+    per-kernel-launch overhead that makes serial single-observation sampling
+    much slower than CPU.
     """
     print("\n" + "="*70)
     print(f"EVALUATING NPE ON TEST SET  (n_posterior_samples={n_posterior_samples})")
     print("="*70)
 
-    n_test = min(len(X_test), 500)
+    # Always evaluate on CPU — serial single-obs sampling is faster there
+    eval_posterior = posterior
+    try:
+        eval_posterior = posterior.set_default_x(None)  # reset any cached x
+    except Exception:
+        pass
+
+    n_test = min(len(X_test), n_eval)
     if n_test < len(X_test):
         print(f"  ⚠ Evaluating on first {n_test}/{len(X_test)} test samples for speed.")
+    print(f"  Running on: cpu  (faster than MPS/CUDA for serial single-obs sampling)")
 
-    if hasattr(posterior, '_neural_net'):
-        posterior._neural_net.eval()
+    if hasattr(eval_posterior, '_neural_net'):
+        eval_posterior._neural_net.eval()
 
-    pred_means, pred_stds = [], []
+    pred_means, pred_stds, pred_maps = [], [], []
     for i in range(n_test):
-        x_obs = torch.FloatTensor(X_test[i]).unsqueeze(0)
-        if device is not None:
-            x_obs = x_obs.to(device)
+        x_obs = torch.FloatTensor(X_test[i]).unsqueeze(0)  # keep on CPU
         with torch.no_grad():
-            samples = posterior.sample(
+            samples = eval_posterior.sample(
                 (n_posterior_samples,), x=x_obs, show_progress_bars=False
             )
-        pred_means.append(samples.cpu().mean(0).numpy())
-        pred_stds.append(samples.cpu().std(0).numpy())
+        s = samples.cpu().numpy()
+        pred_means.append(s.mean(0))
+        pred_stds.append(s.std(0))
+        pred_maps.append(map_from_samples(s))
 
     pred_means = np.array(pred_means)
     pred_stds  = np.array(pred_stds)
+    pred_maps  = np.array(pred_maps)
     y_true     = y_test[:n_test]
 
     results = {}
-    print(f"\n{'Parameter':<22} {'R²':<10} {'RMSE':<10} {'MAE':<10} {'Mean Posterior σ'}")
-    print("-"*70)
+    print(f"\n{'Parameter':<22} {'R² (mean)':<12} {'R² (MAP)':<12} {'RMSE':<10} {'MAE':<10} {'Mean Posterior σ'}")
+    print("-"*80)
 
     for i, param in enumerate(param_names):
-        y_t = y_true[:, i]
-        y_p = pred_means[:, i]
-        y_s = pred_stds[:, i]
-        r2   = r2_score(y_t, y_p)
+        y_t  = y_true[:, i]
+        y_p  = pred_means[:, i]
+        y_m  = pred_maps[:, i]
+        y_s  = pred_stds[:, i]
+        r2      = r2_score(y_t, y_p)
+        r2_map  = r2_score(y_t, y_m)
         rmse = np.sqrt(mean_squared_error(y_t, y_p))
         mae  = mean_absolute_error(y_t, y_p)
-        results[param] = dict(r2=r2, rmse=rmse, mae=mae, mean_sigma=float(y_s.mean()),
-                              true=y_t, pred_mean=y_p, pred_std=y_s)
-        print(f"{param:<22} {r2:<10.4f} {rmse:<10.4f} {mae:<10.4f} {y_s.mean():.4f}")
+        results[param] = dict(r2=r2, r2_map=r2_map, rmse=rmse, mae=mae,
+                              mean_sigma=float(y_s.mean()),
+                              true=y_t, pred_mean=y_p, pred_std=y_s, pred_map=y_m)
+        print(f"{param:<22} {r2:<12.4f} {r2_map:<12.4f} {rmse:<10.4f} {mae:<10.4f} {y_s.mean():.4f}")
 
     overall_r2   = r2_score(y_true.flatten(), pred_means.flatten())
     overall_rmse = np.sqrt(mean_squared_error(y_true.flatten(), pred_means.flatten()))
-    print("-"*70)
-    print(f"{'OVERALL':<22} {overall_r2:<10.4f} {overall_rmse:<10.4f}")
-    print("="*70 + "\n")
+    overall_r2_map = r2_score(y_true.flatten(), pred_maps.flatten())
+    print("-"*80)
+    print(f"{'OVERALL (mean)':<22} {overall_r2:<12.4f} {overall_r2_map:<12.4f} {overall_rmse:<10.4f}")
+    print("="*80 + "\n")
 
     metrics_dict = {
         p: {k: float(v) if not isinstance(v, np.ndarray) else v.tolist()
             for k, v in vals.items()}
         for p, vals in results.items()
     }
-    metrics_dict['overall'] = {'r2': float(overall_r2), 'rmse': float(overall_rmse)}
+    metrics_dict['overall'] = {'r2': float(overall_r2), 'r2_map': float(overall_r2_map),
+                                'rmse': float(overall_rmse)}
     with open(output_dir / 'test_metrics.json', 'w') as f:
         json.dump(metrics_dict, f, indent=2)
 
@@ -212,7 +244,7 @@ def evaluate_npe(posterior, X_test, y_test, param_names, output_dir,
 # ============================================================================
 
 def plot_npe_results(results, output_dir, param_names):
-    """Prediction scatter plots and posterior uncertainty bar plot."""
+    """Prediction scatter plots (MAP vs True) and posterior uncertainty bar plot."""
     n_params = len(param_names)
     n_cols   = min(n_params, 4)
     n_rows   = math.ceil(n_params / n_cols)
@@ -220,24 +252,25 @@ def plot_npe_results(results, output_dir, param_names):
     axes = np.array(axes).flatten()
 
     for i, param in enumerate(param_names):
-        ax  = axes[i]
-        y_t = results[param]['true']
-        y_p = results[param]['pred_mean']
-        y_s = results[param]['pred_std']
-        r2  = results[param]['r2']
+        ax    = axes[i]
+        y_t   = results[param]['true']
+        y_map = results[param]['pred_map']
+        y_s   = results[param]['pred_std']
+        r2    = results[param]['r2_map']
 
-        ax.errorbar(y_t, y_p, yerr=y_s, fmt='o', alpha=0.4, markersize=3, elinewidth=0.5)
-        lo, hi = min(y_t.min(), y_p.min()), max(y_t.max(), y_p.max())
-        ax.plot([lo, hi], [lo, hi], 'r--', lw=2)
+        ax.scatter(y_t, y_map, alpha=0.4, s=15, color='steelblue')
+        lo, hi = min(y_t.min(), y_map.min()), max(y_t.max(), y_map.max())
+        ax.plot([lo, hi], [lo, hi], 'r--', lw=2, label='Identity')
         ax.set_xlabel('True', fontsize=10)
-        ax.set_ylabel('Predicted (posterior mean)', fontsize=10)
+        ax.set_ylabel('MAP Estimate', fontsize=10)
         ax.set_title(f'{param}  (R²={r2:.3f})', fontsize=11, fontweight='bold')
+        ax.legend(fontsize=8)
         ax.grid(True, alpha=0.3)
 
     for j in range(n_params, n_rows * n_cols):
         fig.delaxes(axes[j])
 
-    plt.suptitle('NPE: Posterior Mean vs True (error bars = posterior σ)', fontsize=12)
+    plt.suptitle('NPE: MAP Estimate vs True', fontsize=12)
     plt.tight_layout()
     plt.savefig(output_dir / 'predictions_vs_true.png', dpi=300, bbox_inches='tight')
     plt.close()
@@ -275,8 +308,8 @@ def main():
                         help='Maximum training epochs (default: 500)')
     parser.add_argument('--stop_after_epochs', type=int, default=50,
                         help='Early stopping patience (default: 50)')
-    parser.add_argument('--batch_size', type=int, default=256,
-                        help='Training mini-batch size (default: 256)')
+    parser.add_argument('--batch_size', type=int, default=1024,
+                        help='Training mini-batch size (default: 1024)')
     parser.add_argument('--lr', type=float, default=5e-4,
                         help='Learning rate (default: 5e-4)')
     parser.add_argument('--weight_decay', type=float, default=1e-4,
@@ -296,6 +329,8 @@ def main():
                         help='Buffer fraction around training data range for prior (default: 0.1)')
     parser.add_argument('--n_posterior_samples', type=int, default=500,
                         help='Posterior samples per test observation for evaluation (default: 500)')
+    parser.add_argument('--n_eval', type=int, default=200,
+                        help='Number of test observations to evaluate (default: 200)')
     parser.add_argument('--include_n_pairs', action='store_true',
                         help='Include N_pairs as an input feature')
     parser.add_argument('--device', type=str, default='auto',
@@ -333,9 +368,15 @@ def main():
     df = load_and_clean_data(data_path)
 
     feature_cols = ['mz_var', 'mz_cov', 'dz_var', 'dz_cov']
-    if args.include_n_pairs and 'N_pairs' in df.columns:
-        feature_cols.append('N_pairs')
-        print("  Including N_pairs as feature")
+    if args.include_n_pairs:
+        if 'log_N_pairs' in df.columns:
+            feature_cols.append('log_N_pairs')
+            print("  Including log(N_pairs) as feature  [log-scale improves uncertainty calibration]")
+        elif 'N_pairs' in df.columns:
+            # Legacy: compute log on-the-fly so old data files still work
+            df['log_N_pairs'] = np.log(df['N_pairs'])
+            feature_cols.append('log_N_pairs')
+            print("  Including log(N_pairs) as feature  [computed from N_pairs column]")
 
     X = df[feature_cols].values
     y = df[ACE_PARAM_NAMES].values
@@ -460,7 +501,7 @@ def main():
     results = evaluate_npe(
         posterior, X_test_s, y_test, ACE_PARAM_NAMES,
         output_dir, n_posterior_samples=args.n_posterior_samples,
-        device=device,
+        device=device, n_eval=args.n_eval,
     )
     plot_npe_results(results, output_dir, ACE_PARAM_NAMES)
 

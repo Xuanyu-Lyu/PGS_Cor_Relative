@@ -29,12 +29,35 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import joblib
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+from scipy.stats import gaussian_kde
 
 # ACEEmbeddingNet must be importable so pickle can reconstruct the posterior
-from train_ace_nn import ACEEmbeddingNet, ACE_PARAM_NAMES  # noqa: F401
-from generate_ace_data import generate_training_data
+from Scripts.nn_validate.simple_models.ACE_Scripts.train_ace_nn import ACEEmbeddingNet, ACE_PARAM_NAMES  # noqa: F401
+from Scripts.nn_validate.simple_models.ACE_Scripts.generate_ace_training_data import generate_training_data
 
 warnings.filterwarnings('ignore')
+
+
+# ============================================================================
+# HELPERS
+# ============================================================================
+
+def map_from_samples(samples: np.ndarray) -> np.ndarray:
+    """
+    Approximate the MAP (mode) for each parameter independently using a 1-D
+    kernel density estimate on the posterior samples.
+
+    Args:
+        samples: (n_samples, n_params) array of posterior draws
+    Returns:
+        map_est: (n_params,) array of MAP estimates
+    """
+    map_est = np.empty(samples.shape[1])
+    for i in range(samples.shape[1]):
+        kde = gaussian_kde(samples[:, i])
+        xs  = np.linspace(samples[:, i].min(), samples[:, i].max(), 1000)
+        map_est[i] = xs[np.argmax(kde(xs))]
+    return map_est
 
 
 # ============================================================================
@@ -110,6 +133,10 @@ def run_oos_validation(n_samples=200, model_dir='results_ace_npe',
     if hasattr(posterior, '_neural_net'):
         posterior._neural_net.eval()
 
+    # ---- Extract prior bounds for reference lines on plots ----
+    prior_lower = np.array(config['prior_lower']) if 'prior_lower' in config else None
+    prior_upper = np.array(config['prior_upper']) if 'prior_upper' in config else None
+
     # ---- Generate fresh OOS data ----
     print(f"\nGenerating {n_samples} out-of-sample observations...")
     df_oos = generate_training_data(n_samples=n_samples, seed=seed)
@@ -121,7 +148,7 @@ def run_oos_validation(n_samples=200, model_dir='results_ace_npe',
 
     # ---- Draw posterior samples ----
     print(f"Drawing {n_posterior_samples} posterior samples per observation...")
-    pred_means, pred_stds, pred_ci_lo, pred_ci_hi = [], [], [], []
+    pred_means, pred_stds, pred_ci_lo, pred_ci_hi, pred_maps = [], [], [], [], []
 
     for i in range(n_samples):
         x_obs = torch.FloatTensor(X_scaled[i]).unsqueeze(0)
@@ -134,11 +161,13 @@ def run_oos_validation(n_samples=200, model_dir='results_ace_npe',
         pred_stds.append(s.std(0))
         pred_ci_lo.append(np.percentile(s, 2.5,  axis=0))
         pred_ci_hi.append(np.percentile(s, 97.5, axis=0))
+        pred_maps.append(map_from_samples(s))
 
     pred_means = np.array(pred_means)   # (n, 3)
     pred_stds  = np.array(pred_stds)
     pred_ci_lo = np.array(pred_ci_lo)
     pred_ci_hi = np.array(pred_ci_hi)
+    pred_maps  = np.array(pred_maps)    # (n, 3)
 
     # ---- Bias & calibration summary ----
     print("\n" + "="*70)
@@ -146,21 +175,24 @@ def run_oos_validation(n_samples=200, model_dir='results_ace_npe',
     print("="*70)
     print(f"\n{'Parameter':<12} {'Mean True':<12} {'Mean Pred':<12} "
           f"{'Bias':<10} {'|B|/SD':<10} {'R²':<8} {'RMSE':<8} "
-          f"{'Mean σ':<10} {'95% Cov':<8}")
-    print("-"*90)
+          f"{'Mean σ':<10} {'95% Cov':<8}  {'MAP Bias':<12} {'MAP R²'}")
+    print("-"*112)
 
     results_rows = []
     for i, name in enumerate(param_names):
         true_i  = y_true[:, i]
         pred_i  = pred_means[:, i]
+        map_i   = pred_maps[:, i]
         std_i   = pred_stds[:, i]
         ci_lo_i = pred_ci_lo[:, i]
         ci_hi_i = pred_ci_hi[:, i]
 
         bias      = float(np.mean(pred_i - true_i))
+        map_bias  = float(np.mean(map_i  - true_i))
         sd        = float(np.std(true_i))
         rel_bias  = abs(bias) / sd if sd > 0 else float('nan')
         r2        = float(r2_score(true_i, pred_i))
+        r2_map    = float(r2_score(true_i, map_i))
         rmse      = float(np.sqrt(mean_squared_error(true_i, pred_i)))
         mae       = float(mean_absolute_error(true_i, pred_i))
         mean_sig  = float(std_i.mean())
@@ -168,15 +200,17 @@ def run_oos_validation(n_samples=200, model_dir='results_ace_npe',
 
         print(f"{name:<12} {np.mean(true_i):<12.4f} {np.mean(pred_i):<12.4f} "
               f"{bias:<10.4f} {rel_bias:<10.4f} {r2:<8.4f} {rmse:<8.4f} "
-              f"{mean_sig:<10.4f} {coverage:<8.3f}")
+              f"{mean_sig:<10.4f} {coverage:<8.3f}  {map_bias:<+12.4f} {r2_map:.4f}")
 
         results_rows.append({
             'param':      name,
             'mean_true':  float(np.mean(true_i)),
             'mean_pred':  float(np.mean(pred_i)),
             'bias':       bias,
+            'map_bias':   map_bias,
             'rel_bias':   rel_bias,
             'r2':         r2,
+            'r2_map':     r2_map,
             'rmse':       rmse,
             'mae':        mae,
             'mean_sigma': mean_sig,
@@ -192,12 +226,13 @@ def run_oos_validation(n_samples=200, model_dir='results_ace_npe',
     df_out_cols = (
         [f"{p}_true"    for p in param_names] +
         [f"{p}_pred"    for p in param_names] +
+        [f"{p}_map"     for p in param_names] +
         [f"{p}_std"     for p in param_names] +
         [f"{p}_ci_lo"   for p in param_names] +
         [f"{p}_ci_hi"   for p in param_names]
     )
     df_out = pd.DataFrame(
-        np.hstack([y_true, pred_means, pred_stds, pred_ci_lo, pred_ci_hi]),
+        np.hstack([y_true, pred_means, pred_maps, pred_stds, pred_ci_lo, pred_ci_hi]),
         columns=df_out_cols,
     )
     df_out['sum_true'] = y_true.sum(axis=1)
@@ -212,7 +247,8 @@ def run_oos_validation(n_samples=200, model_dir='results_ace_npe',
     print(f"✓ Bias summary saved to: {output_dir / 'oos_bias_summary.csv'}")
 
     # ---- Plots ----
-    _plot_oos(y_true, pred_means, pred_stds, param_names, output_dir)
+    _plot_oos(y_true, pred_means, pred_stds, param_names, output_dir,
+              pred_maps=pred_maps, prior_lower=prior_lower, prior_upper=prior_upper)
 
     return df_out
 
@@ -221,8 +257,9 @@ def run_oos_validation(n_samples=200, model_dir='results_ace_npe',
 # VISUALIZATION
 # ============================================================================
 
-def _plot_oos(y_true, pred_means, pred_stds, param_names, output_dir):
-    """Scatter plots with error bars and bias distribution histograms."""
+def _plot_oos(y_true, pred_means, pred_stds, param_names, output_dir,
+              pred_maps=None, prior_lower=None, prior_upper=None):
+    """Scatter plots with error bars, bias distribution histograms, and MAP scatter."""
     n      = len(param_names)
     n_cols = min(n, 4)
     n_rows = math.ceil(n / n_cols)
@@ -242,11 +279,17 @@ def _plot_oos(y_true, pred_means, pred_stds, param_names, output_dir):
         ax.errorbar(t, p, yerr=s, fmt='o', alpha=0.4, markersize=4,
                     elinewidth=0.6, capsize=2)
         lims = [min(t.min(), p.min()), max(t.max(), p.max())]
-        ax.plot(lims, lims, 'r--', lw=2)
+        ax.plot(lims, lims, 'r--', lw=2, label='Identity')
+        if prior_lower is not None and prior_upper is not None:
+            pm = 0.5 * (prior_lower[i] + prior_upper[i])
+            ax.axhline(pm, color='purple', linestyle=':', lw=1.5,
+                       label=f'Prior mean = {pm:.3f}')
+            ax.axvline(pm, color='purple', linestyle=':', lw=1.5)
         ax.set_xlabel('True Value', fontsize=10)
         ax.set_ylabel('Posterior Mean', fontsize=10)
         ax.set_title(f'{name}  (R²={r2:.3f}, bias={bias:+.4f})',
                      fontsize=11, fontweight='bold')
+        ax.legend(fontsize=8)
         ax.grid(True, alpha=0.3)
 
     for j in range(n, n_rows * n_cols):
@@ -310,6 +353,43 @@ def _plot_oos(y_true, pred_means, pred_stds, param_names, output_dir):
     plt.savefig(output_dir / 'oos_posterior_width.png', dpi=300, bbox_inches='tight')
     plt.close()
     print(f"✓ Saved posterior width plot")
+
+    # --- MAP estimate vs True ---
+    if pred_maps is not None:
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 5 * n_rows))
+        axes = np.array(axes).flatten()
+
+        for i, name in enumerate(param_names):
+            ax     = axes[i]
+            t      = y_true[:, i]
+            m      = pred_maps[:, i]
+            r2_m   = r2_score(t, m)
+            bias_m = np.mean(m - t)
+
+            ax.scatter(t, m, alpha=0.4, s=15, color='steelblue')
+            lims = [min(t.min(), m.min()), max(t.max(), m.max())]
+            ax.plot(lims, lims, 'r--', lw=2, label='Identity')
+            if prior_lower is not None and prior_upper is not None:
+                pm = 0.5 * (prior_lower[i] + prior_upper[i])
+                ax.axhline(pm, color='purple', linestyle=':', lw=1.5,
+                           label=f'Prior mean = {pm:.3f}')
+                ax.axvline(pm, color='purple', linestyle=':', lw=1.5)
+            ax.set_xlabel('True Value', fontsize=10)
+            ax.set_ylabel('MAP Estimate', fontsize=10)
+            ax.set_title(f'{name}  MAP  (R²={r2_m:.3f}, bias={bias_m:+.4f})',
+                         fontsize=11, fontweight='bold')
+            ax.legend(fontsize=8)
+            ax.grid(True, alpha=0.3)
+
+        for j in range(n, n_rows * n_cols):
+            fig.delaxes(axes[j])
+
+        plt.suptitle('ACE NPE — Out-of-Sample: MAP Estimate vs True',
+                     fontsize=12, fontweight='bold')
+        plt.tight_layout()
+        plt.savefig(output_dir / 'oos_map_vs_true.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"✓ Saved MAP vs true plot")
 
 
 # ============================================================================

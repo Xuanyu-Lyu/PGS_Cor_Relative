@@ -56,25 +56,25 @@ from BiSEMPGSnn import (
 
 PARAM_BOUNDS = {
     # Total SNP heritability for each trait
-    "vg1":             (0.10, 0.95),
-    "vg2":             (0.10, 0.95),
+    "vg1":             (0.01, 0.99),
+    "vg2":             (0.01, 0.99),
     # Genetic correlation between traits
-    "rg":              (-0.50,  0.90),
+    "rg":              (-0.99,  0.99),
     # Residual environmental correlation
-    "re":              (-0.70,  0.90),
+    "re":              (-0.99,  0.99),
     # Fraction of heritability explained by the *latent* (unobserved) PGS
-    "prop_h2_latent1": (0.05,  0.95),
-    "prop_h2_latent2": (0.05,  0.95),
+    "prop_h2_latent1": (0.01,  0.99),
+    "prop_h2_latent2": (0.01,  0.99),
     # Assortative mating correlations (mate-correlation matrix)
-    "am11":            (0.00,  0.70),   # within-trait AM (trait 1)
-    "am12":            (-0.40,  0.50),  # cross-trait AM  (Yp1 → Ym2)
-    "am21":            (-0.40,  0.50),  # cross-trait AM  (Yp2 → Ym1)
-    "am22":            (0.00,  0.70),   # within-trait AM (trait 2)
+    "am11":            (-0.70,  0.70),   # within-trait AM (trait 1)
+    "am12":            (-0.70,  0.70),  # cross-trait AM  (Yp1 → Ym2)
+    "am21":            (-0.70,  0.70),  # cross-trait AM  (Yp2 → Ym1)
+    "am22":            (-0.70,  0.70),   # within-trait AM (trait 2)
     # Vertical transmission (VT) coefficients
-    "f11":             (0.00,  0.30),   # direct VT (trait 1)
-    "f12":             (-0.20,  0.25),  # cross VT  (parent trait 2 → offspring trait 1)
-    "f21":             (-0.20,  0.25),  # cross VT  (parent trait 1 → offspring trait 2)
-    "f22":             (0.00,  0.30),   # direct VT (trait 2)
+    "f11":             (-0.25,  0.25),   # direct VT (trait 1)
+    "f12":             (-0.25,  0.25),  # cross VT  (parent trait 2 → offspring trait 1)
+    "f21":             (-0.25,  0.25),  # cross VT  (parent trait 1 → offspring trait 2)
+    "f22":             (-0.25,  0.25),   # direct VT (trait 2)
 }
 
 PARAM_NAMES = list(PARAM_BOUNDS.keys())   # 14 parameter names
@@ -198,7 +198,7 @@ def main():
         help="Random seed",
     )
     parser.add_argument(
-        "--gens", type=int, default=15,
+        "--gens", type=int, default=20,
         help="Generations for the iterative AM/VT model",
     )
     args = parser.parse_args()
