@@ -140,7 +140,7 @@ class ACEEmbeddingNet(nn.Module):
 # ============================================================================
 
 def evaluate_npe(posterior, X_test, y_test, param_names, output_dir,
-                 n_posterior_samples=500):
+                 n_posterior_samples=500, device=None):
     """
     Evaluate the trained NPE on the held-out test set.
 
@@ -161,12 +161,14 @@ def evaluate_npe(posterior, X_test, y_test, param_names, output_dir,
     pred_means, pred_stds = [], []
     for i in range(n_test):
         x_obs = torch.FloatTensor(X_test[i]).unsqueeze(0)
+        if device is not None:
+            x_obs = x_obs.to(device)
         with torch.no_grad():
             samples = posterior.sample(
                 (n_posterior_samples,), x=x_obs, show_progress_bars=False
             )
-        pred_means.append(samples.mean(0).numpy())
-        pred_stds.append(samples.std(0).numpy())
+        pred_means.append(samples.cpu().mean(0).numpy())
+        pred_stds.append(samples.cpu().std(0).numpy())
 
     pred_means = np.array(pred_means)
     pred_stds  = np.array(pred_stds)
@@ -458,6 +460,7 @@ def main():
     results = evaluate_npe(
         posterior, X_test_s, y_test, ACE_PARAM_NAMES,
         output_dir, n_posterior_samples=args.n_posterior_samples,
+        device=device,
     )
     plot_npe_results(results, output_dir, ACE_PARAM_NAMES)
 

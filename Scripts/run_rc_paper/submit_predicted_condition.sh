@@ -12,7 +12,7 @@
 #SBATCH --error=slurm_logs/pred_cond_02AElatentAM_%A_%a.err
 
 # Array for 100 iterations / 5 per task = 20 tasks total
-#SBATCH --array=1-20%10
+#SBATCH --array=1-20%20
 
 # --- Job Configuration ---
 mkdir -p slurm_logs
