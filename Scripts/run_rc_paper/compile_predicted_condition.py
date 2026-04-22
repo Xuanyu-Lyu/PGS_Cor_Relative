@@ -15,8 +15,8 @@ import sys
 from pathlib import Path
 
 # ── Directories ──────────────────────────────────────────────────────────────
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM")
-CONDITION_DIR = PROJECT_BASE / "Predicted_Condition_02AElatentAM"
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_03EnvLatentAM")
+CONDITION_DIR = PROJECT_BASE / "Predicted_Condition_03EnvLatentAM"
 
 
 def compile_correlations(condition_dir: Path) -> None:
