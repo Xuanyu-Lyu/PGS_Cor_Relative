@@ -52,7 +52,7 @@ MAF_MAX = 0.5
 # Parameter bounds for uniform sampling: [min, max]
 PARAM_BOUNDS = {
     'prop_h2_latent1': [0.5,  0.9],
-    'prop_h2_latent2': [0.5,  0.9],
+    #'prop_h2_latent2': [0.5,  0.9],
     'vg1':             [0.4,  0.8],
     'vg2':             [0.4,  0.8],
     're':              [0.0,  0.4],
@@ -73,7 +73,7 @@ FIXED_PARAMS = {
     's12': 0,
     's21': 0,
     's22': 0,
-    #'prop_h2_latent2': 1.0  # 0.8/0.8 = 1.0
+    'prop_h2_latent2': 1.0 
 }
 
 # Relationship types to analyze

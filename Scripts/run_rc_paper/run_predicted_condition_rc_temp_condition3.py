@@ -21,37 +21,38 @@ from extract_measures import extract_individual_measures, compute_correlations_f
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM")
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_03EnvLatentAM")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_03EnvLatentAM")
 
-# Bivariate AE + latent AM condition (02_AElatentAM).
+# Bivariate ACE + latent AM condition (03_EnvLatentAM).
 # Single-trait phenotypic AM on trait 2 only (latent factor, am22);
 # traits are genetically and environmentally correlated (rg, re).
-# AE model: no vertical transmission, no shared family environment.
+# ACE model: includes vertical transmission (f11, f22, f12, f21) and
+# shared family environment / social homogamy (s11, s22, s12, s21).
 # Parameter values are the posterior medians from the NPE fit to the observed data.
 CONDITION = {
-    'name': 'Predicted_Condition_02AElatentAM',
-    # Trait 1: AE model, latent genetic variance (posterior median)
-    'prop_h2_latent1': 0.7811,
-    'vg1': 0.4338,
+    'name': 'Predicted_Condition_03EnvLatentAM',
+    # Trait 1: ACE model, latent genetic variance (posterior median)
+    'prop_h2_latent1': 0.7770,
+    'vg1': 0.4706,
     'am11': 0.0,      # no direct AM on trait 1
-    'f11': 0.0,       # AE model: no vertical transmission
-    # Trait 2: AE model with latent AM (posterior median)
-    'prop_h2_latent2': 0.7063,
-    'vg2': 0.4981,
-    'am22': 0.6430,   # latent AM on trait 2 (single-trait mating)
-    'f22': 0.0,       # AE model: no vertical transmission
-    's11': 0.0,       # no shared family environment (trait 1)
-    's12': 0.0,       # no cross-trait family environment
-    's21': 0.0,       # no cross-trait family environment
-    's22': 0.0,       # no shared family environment (trait 2)
+    'f11': 0.0703,    # vertical transmission (trait 1)
+    # Trait 2: ACE model with latent AM (posterior median)
+    'prop_h2_latent2': 0.7193,
+    'vg2': 0.6134,
+    'am22': 0.6645,   # latent AM on trait 2 (single-trait mating)
+    'f22': 0.1443,    # vertical transmission (trait 2)
+    's11': 0.2029,    # shared family environment (trait 1)
+    's12': 0.1844,    # cross-trait family environment
+    's21': 0.1944,    # cross-trait family environment
+    's22': 0.2073,    # shared family environment (trait 2)
     # Cross-trait parameters (posterior medians)
-    'f12': 0.0,
-    'f21': 0.0,
+    'f12': 0.0354,
+    'f21': 0.1155,
     'am12': 0.0,
     'am21': 0.0,
-    'rg': 0.7719,     # genetic correlation
-    're': 0.3713,     # environmental correlation
+    'rg': 0.6610,     # genetic correlation
+    're': 0.2798,     # environmental correlation
 }
 
 # Simulation parameters
@@ -66,7 +67,7 @@ MAF_MAX = 0.5
 # ── Mating scheme ─────────────────────────────────────────────────────────────
 # Set to 1 to mate on trait 1 only, 2 to mate on trait 2 only,
 # or 'both' for bivariate (matrix) AM on both traits simultaneously.
-# Condition 02AElatentAM uses single-trait latent AM on trait 2 only.
+# Condition 03EnvLatentAM uses single-trait latent AM on trait 2 only.
 MATE_ON_TRAIT = 2
 
 # Relationship types to analyze
@@ -399,9 +400,9 @@ def run_predicted_condition(condition, scratch_base, project_base):
     
     print(f"\n{'#'*70}")
     print(f"# Starting simulations: {condition_name}")
-    print(f"# Condition 02_AElatentAM: bivariate AE model, single-trait latent AM on trait {MATE_ON_TRAIT}")
-    print(f"# Trait 1 (AE): prop_h2_latent1={condition['prop_h2_latent1']:.4f}, vg1={condition['vg1']:.4f}, am11={condition['am11']:.4f}")
-    print(f"# Trait 2 (AE+latentAM): prop_h2_latent2={condition['prop_h2_latent2']:.4f}, vg2={condition['vg2']:.4f}, am22={condition['am22']:.4f}")
+    print(f"# Condition 03_EnvLatentAM: bivariate ACE model, single-trait latent AM on trait {MATE_ON_TRAIT}")
+    print(f"# Trait 1 (ACE): prop_h2_latent1={condition['prop_h2_latent1']:.4f}, vg1={condition['vg1']:.4f}, f11={condition['f11']:.4f}, s11={condition['s11']:.4f}")
+    print(f"# Trait 2 (ACE+latentAM): prop_h2_latent2={condition['prop_h2_latent2']:.4f}, vg2={condition['vg2']:.4f}, am22={condition['am22']:.4f}, f22={condition['f22']:.4f}, s22={condition['s22']:.4f}")
     print(f"# Mating scheme: MATE_ON_TRAIT={MATE_ON_TRAIT}")
     print(f"# Cross-trait: rg={condition['rg']:.4f}, re={condition['re']:.4f}")
     print(f"# Array Task {task_id}: Running iterations {start_iter+1} to {end_iter}")
@@ -512,7 +513,7 @@ def main():
     Main execution function.
     """
     print("\n" + "="*70)
-    print("PREDICTED CONDITION SIMULATION SCRIPT - 02_AElatentAM")
+    print("PREDICTED CONDITION SIMULATION SCRIPT - 03_EnvLatentAM")
     print("="*70)
     print(f"Scratch base directory: {SCRATCH_BASE}")
     print(f"Project base directory: {PROJECT_BASE}")
@@ -522,11 +523,11 @@ def main():
     print(f"Population size: {POP_SIZE}")
     print(f"Number of generations: {N_GENERATIONS} (saving final 3)")
     print(f"Number of causal variants: {N_CV}")
-    print(f"\nTrait 1 parameters (AE model, 02AElatentAM posterior medians):")
-    print(f"  prop_h2_latent1={CONDITION['prop_h2_latent1']:.4f}, vg1={CONDITION['vg1']:.4f}, am11={CONDITION['am11']:.4f}")
-    print(f"\nTrait 2 parameters (AE + latent AM, 02AElatentAM posterior medians):")
-    print(f"  prop_h2_latent2={CONDITION['prop_h2_latent2']:.4f}, vg2={CONDITION['vg2']:.4f}, am22={CONDITION['am22']:.4f}")
-    print(f"\nCross-trait (posterior medians): rg={CONDITION['rg']:.4f}, re={CONDITION['re']:.4f}")
+    print(f"\nTrait 1 parameters (ACE model, 03EnvLatentAM posterior medians):")
+    print(f"  prop_h2_latent1={CONDITION['prop_h2_latent1']:.4f}, vg1={CONDITION['vg1']:.4f}, f11={CONDITION['f11']:.4f}, s11={CONDITION['s11']:.4f}")
+    print(f"\nTrait 2 parameters (ACE + latent AM, 03EnvLatentAM posterior medians):")
+    print(f"  prop_h2_latent2={CONDITION['prop_h2_latent2']:.4f}, vg2={CONDITION['vg2']:.4f}, am22={CONDITION['am22']:.4f}, f22={CONDITION['f22']:.4f}, s22={CONDITION['s22']:.4f}")
+    print(f"\nCross-trait (posterior medians): rg={CONDITION['rg']:.4f}, re={CONDITION['re']:.4f}, f12={CONDITION['f12']:.4f}, f21={CONDITION['f21']:.4f}")
     print("="*70 + "\n")
     
     # Run the predicted condition

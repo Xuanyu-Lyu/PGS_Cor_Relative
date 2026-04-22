@@ -37,5 +37,6 @@ export SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}
 
 # Run simulation script
 python -u run_predicted_condition_rc.py
+python -u run_predicted_condition_rc_temp_condition3.py
 
 echo "Task $SLURM_ARRAY_TASK_ID completed."
