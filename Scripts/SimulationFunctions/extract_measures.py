@@ -203,6 +203,7 @@ def compute_correlation_by_relationship(pairs_with_measures, variable_name, rela
             
             if len(clean_data) >= 2:  # Need at least 2 pairs for correlation
                 correlation = clean_data[var_1].corr(clean_data[var_2])
+                covariance = clean_data[var_1].cov(clean_data[var_2])
                 
                 # Compute p-value using scipy if available
                 try:
@@ -218,6 +219,7 @@ def compute_correlation_by_relationship(pairs_with_measures, variable_name, rela
                     'Relationship': rel_type,
                     'Variable': variable_name,
                     'Correlation': correlation,
+                    'Covariance': covariance,
                     'N_Pairs': len(clean_data),
                     'P_Value': p_value
                 })
@@ -226,6 +228,7 @@ def compute_correlation_by_relationship(pairs_with_measures, variable_name, rela
                     'Relationship': rel_type,
                     'Variable': variable_name,
                     'Correlation': np.nan,
+                    'Covariance': np.nan,
                     'N_Pairs': len(clean_data),
                     'P_Value': np.nan
                 })
@@ -235,6 +238,7 @@ def compute_correlation_by_relationship(pairs_with_measures, variable_name, rela
         
         if len(clean_data) >= 2:
             correlation = clean_data[var_1].corr(clean_data[var_2])
+            covariance = clean_data[var_1].cov(clean_data[var_2])
             
             try:
                 from scipy.stats import pearsonr
@@ -249,6 +253,7 @@ def compute_correlation_by_relationship(pairs_with_measures, variable_name, rela
                 'Relationship': 'All',
                 'Variable': variable_name,
                 'Correlation': correlation,
+                'Covariance': covariance,
                 'N_Pairs': len(clean_data),
                 'P_Value': p_value
             })

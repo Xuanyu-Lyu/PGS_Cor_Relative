@@ -51,13 +51,13 @@ MAF_MAX = 0.5
 
 # Parameter bounds for uniform sampling: [min, max]
 PARAM_BOUNDS = {
-    'prop_h2_latent1': [0.5,  0.9],
+    'prop_h2_latent1': [0.30,  0.9],
     #'prop_h2_latent2': [0.5,  0.9],
-    'vg1':             [0.4,  0.8],
-    'vg2':             [0.4,  0.8],
-    're':              [0.0,  0.4],
+    'vg1':             [0.2,  0.8],
+    'vg2':             [0.2,  0.8],
+    're':              [0.0,  0.6],
     'am22':            [0.25, 0.75],
-    'rg':              [0.40, 0.90],
+    'rg':              [0.20, 0.90],
 }
 
 # Fixed parameters
@@ -323,7 +323,7 @@ def extract_and_analyze_relationships(results, iteration):
     if len(all_correlations) > 0:
         correlations_df = pd.concat(all_correlations, ignore_index=True)
         cols = ['Iteration', 'RelationshipPath', 'Relationship',
-                'Variable', 'N_Pairs', 'Correlation', 'P_Value']
+                'Variable', 'N_Pairs', 'Correlation', 'Covariance', 'P_Value']
         correlations_df = correlations_df[cols]
         return correlations_df
     
@@ -494,10 +494,11 @@ def run_condition(condition, project_base):
             for param in PARAM_BOUNDS.keys():
                 row[f'param_{param}'] = condition[param]
             
-            # Add correlations for each relationship-variable combination
+            # Add correlations and covariances for each relationship-variable combination
             for _, corr_row in iter_data.iterrows():
                 col_name = f"{corr_row['RelationshipPath']}_{corr_row['Variable']}"
                 row[col_name] = corr_row['Correlation']
+                row[f"{col_name}_cov"] = corr_row['Covariance']
                 row[f"{col_name}_N"] = corr_row['N_Pairs']
             
             nn_training_data.append(row)
