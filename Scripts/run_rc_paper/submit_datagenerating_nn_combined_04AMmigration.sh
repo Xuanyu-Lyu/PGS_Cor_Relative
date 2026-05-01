@@ -5,7 +5,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=150G
-#SBATCH --time=48:00:00
+#SBATCH --time=24:00:00
 #SBATCH --chdir /projects/xuly4739/Py_Projects/PGS_Cor_Relative/Scripts/run_rc_paper
 #SBATCH --exclude bmem-rico1
 #SBATCH --output=slurm_logs/nn_04migration_%A_%a.out
