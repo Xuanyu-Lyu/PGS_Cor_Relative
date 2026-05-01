@@ -25,10 +25,12 @@ Usage:
     python generate_ace_data.py --n_samples 20000
 
     # 2. Train
-    python train_ace_nn.py --data ace_training_data_N2000.csv --epochs 500 --device cpu --output results_ace_npe_no_n
+    python train_ace_nn.py --data ace_training_data_N2000.csv --epochs 200 --device cpu --output results_ace_npe_no_n_wideprior
 
     # 3. Optionally add N_pairs as a feature
     python train_ace_nn.py --data ace_training_data.csv --include_n_pairs --epochs 500 --device cpu
+    # 4. train with gaussian prior instead of boxuniform
+    python train_ace_nn.py --data ace_training_data_N20000.csv --epochs 500 --device cpu --prior_type gaussian --output results_ace_npe_no_n_gaussianprior
 """
 
 import math
@@ -325,8 +327,11 @@ def main():
                         help='Hidden features within the flow (default: 64)')
     parser.add_argument('--flow_transforms', type=int, default=5,
                         help='Number of flow transforms (default: 5)')
-    parser.add_argument('--prior_buffer', type=float, default=0.1,
-                        help='Buffer fraction around training data range for prior (default: 0.1)')
+    parser.add_argument('--prior_buffer', type=float, default=0.5,
+                        help='Buffer fraction around training data range for prior (default: 0.5)')
+    parser.add_argument('--prior_type', type=str, default='boxuniform',
+                        choices=['boxuniform', 'gaussian'],
+                        help='Prior distribution type: boxuniform or gaussian (default: boxuniform)')
     parser.add_argument('--n_posterior_samples', type=int, default=500,
                         help='Posterior samples per test observation for evaluation (default: 500)')
     parser.add_argument('--n_eval', type=int, default=200,
@@ -403,9 +408,9 @@ def main():
     X_test_s  = feature_scaler.transform(X_test)
     joblib.dump(feature_scaler, output_dir / 'feature_scaler.pkl')
 
-    # ---- Define BoxUniform prior from training data range ----
+    # ---- Define prior from training data range ----
     print("\n" + "="*70)
-    print("PRIOR DEFINITION (BoxUniform from training data range)")
+    print(f"PRIOR DEFINITION ({args.prior_type.upper()} from training data range)")
     print("="*70)
 
     y_min  = y_train.min(axis=0)
@@ -414,12 +419,22 @@ def main():
     prior_lower = torch.tensor(y_min - buffer, dtype=torch.float32)
     prior_upper = torch.tensor(y_max + buffer, dtype=torch.float32)
 
-    print(f"\n{'Parameter':<12} {'Lower':<12} {'Upper':<12}")
-    print("-"*38)
-    for p, lo, hi in zip(ACE_PARAM_NAMES, prior_lower, prior_upper):
-        print(f"  {p:<10} {lo.item():+.4f}      {hi.item():+.4f}")
-
-    prior = BoxUniform(low=prior_lower, high=prior_upper, device=str(device))
+    if args.prior_type == 'boxuniform':
+        print(f"\n{'Parameter':<12} {'Lower':<12} {'Upper':<12}")
+        print("-"*38)
+        for p, lo, hi in zip(ACE_PARAM_NAMES, prior_lower, prior_upper):
+            print(f"  {p:<10} {lo.item():+.4f}      {hi.item():+.4f}")
+        prior = BoxUniform(low=prior_lower, high=prior_upper, device=str(device))
+    else:  # gaussian
+        prior_mean  = torch.tensor((y_min + y_max) / 2, dtype=torch.float32)
+        prior_std   = torch.tensor((y_max - y_min) / 2 + buffer, dtype=torch.float32)
+        print(f"\n{'Parameter':<12} {'Mean':<12} {'Std':<12}")
+        print("-"*38)
+        for p, mu, sigma in zip(ACE_PARAM_NAMES, prior_mean, prior_std):
+            print(f"  {p:<10} {mu.item():+.4f}      {sigma.item():.4f}")
+        prior = torch.distributions.Independent(
+            torch.distributions.Normal(prior_mean.to(device), prior_std.to(device)), 1
+        )
 
     # ---- Build embedding network and density estimator ----
     print("\n" + "="*70)
@@ -441,7 +456,8 @@ def main():
 
     density_estimator_fn = posterior_nn(
         model=args.flow_type,
-        embedding_net=embedding_net,
+        #embedding_net=embedding_net,
+        embedding_net=nn.Identity(),
         hidden_features=args.flow_hidden,
         num_transforms=args.flow_transforms,
         z_score_theta='independent',
@@ -485,11 +501,17 @@ def main():
     posterior = inference.build_posterior(density_estimator)
     print("\n✓ Posterior built successfully.")
 
+    prior_save = {'prior_type': args.prior_type}
+    if args.prior_type == 'boxuniform':
+        prior_save['prior_lower'] = prior_lower
+        prior_save['prior_upper'] = prior_upper
+    else:
+        prior_save['prior_mean'] = prior_mean
+        prior_save['prior_std']  = prior_std
     torch.save(
         {
             'density_estimator_state_dict': density_estimator.state_dict(),
-            'prior_lower': prior_lower,
-            'prior_upper': prior_upper,
+            **prior_save,
         },
         output_dir / 'density_estimator.pt',
     )
@@ -516,8 +538,10 @@ def main():
         'hidden_sizes': args.hidden_sizes,
         'dropout_rate': args.dropout,
         'param_names': ACE_PARAM_NAMES,
-        'prior_lower': prior_lower.tolist(),
-        'prior_upper': prior_upper.tolist(),
+        'prior_type': args.prior_type,
+        **({'prior_lower': prior_lower.tolist(), 'prior_upper': prior_upper.tolist()}
+           if args.prior_type == 'boxuniform'
+           else {'prior_mean': prior_mean.tolist(), 'prior_std': prior_std.tolist()}),
     }
     with open(output_dir / 'config.json', 'w') as f:
         json.dump(config, f, indent=2)

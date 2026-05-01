@@ -25,7 +25,7 @@ Usage:
     python generate_ace_training_data.py --n_samples 20000 --output ace_training_data.csv
 
     # Fixed N for all samples (useful for training a no-N model)
-    python generate_ace_training_data.py --n_pairs 2000 --n_samples 20000 --output ace_training_data_N500.csv
+    python generate_ace_training_data.py --n_pairs 2000 --n_samples 20000 --output ace_training_data_N2000.csv
 
     # Draw randomly from a custom vector
     python generate_ace_training_data.py --n_pairs 200 500 1000 2000 --output ace_training_data.csv
@@ -76,14 +76,11 @@ def generate_training_data(n_samples=20000, n_pairs_options=None, seed=42):
     records = []
 
     for i in range(n_samples):
-        # Sample uniformly over the simplex {A+C+E=1, A≥-0.2, C≥-0.2, E≥-0.2}.
-        # Shift trick: Dirichlet gives (a,c,e) in [0,1] summing to 1; scaling by
-        # 1.6 and subtracting 0.2 maps each component to [-0.2, 1.4] while
-        # preserving A+C+E = 1.6*1 - 3*0.2 = 1.0.
-        ace = np.random.dirichlet([1, 1, 1])
-        A = float(ace[0]) * 1.6 - 0.2
-        C = float(ace[1]) * 1.6 - 0.2
-        E = 1.0 - A - C  # ensures sum = 1 exactly; equivalent to ace[2]*1.6 - 0.2
+        # Sample A, C, E independently and uniformly from [0, 1].
+        # No sum-to-1 constraint is imposed.
+        A = float(np.random.uniform(0, 1))
+        C = float(np.random.uniform(0, 1))
+        E = float(np.random.uniform(0, 1))
 
         N_pairs = n_pairs_options[0] if fixed_n else int(np.random.choice(n_pairs_options))
 
