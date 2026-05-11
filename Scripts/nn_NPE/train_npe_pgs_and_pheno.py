@@ -40,11 +40,11 @@ agnostic to batch size.
 Usage
 -----
     python train_npe_pgs_and_pheno.py \
-        --data nn_training_02AElatentAM.csv \
-        --output ./results_npe_unweighted_02AElatentAM \
+        --data nn_training_04AMmigration.csv \
+        --output ./results_npe_unweighted_04AMmigration \
         --epochs 500 \
-        --features_file ./results_npe_unweighted_02AElatentAM/features.txt \
-        --params_file ./results_npe_unweighted_02AElatentAM/params.txt \
+        --features_file ./results_npe_unweighted_04AMmigration/features.txt \
+        --params_file ./results_npe_unweighted_04AMmigration/params.txt \
         --pheno_weight_decay 0 \
         --pgs_weight_decay 0
 """
@@ -715,7 +715,7 @@ def main():
 
     density_estimator_fn = posterior_nn(
         model=args.flow_type,
-        embedding_net=embedding_net,
+        embedding_net=nn.Identity(),
         hidden_features=args.flow_hidden,
         num_transforms=args.flow_transforms,
         z_score_theta="independent",  # sbi z-scores theta internally

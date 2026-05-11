@@ -17,7 +17,7 @@ command-line arguments.
 Usage
 -----
     python predict_npe_pgs_and_pheno.py \
-        --model_dir results_npe_unweighted_03EnvLatentAM \
+        --model_dir results_npe_unweighted_04AMmigration \
         --correlations_pgs observed_correlations_PGS.csv \
         --correlations_pheno observed_correlations_pheno.csv \
         --n_samples 1000
@@ -226,6 +226,7 @@ def sample_and_summarise(
             sample_shape=(n_samples,),
             x=x_tensor,
             show_progress_bars=True,
+            reject_outside_prior=False,
         )
 
     samples_np = samples.cpu().numpy()   # shape: (n_samples, n_params)

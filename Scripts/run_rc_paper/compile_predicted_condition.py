@@ -1,8 +1,8 @@
 """
 Compile summary statistics from all array-task outputs for the predicted condition
-(02_AElatentAM: bivariate AE model with latent AM on trait 2).
+(04_AMmigration: AE model with latent AM on trait 1 and island migration on trait 2).
 
-Looks in PROJECT_BASE/Predicted_Condition_02AElatentAM/ for per-task CSV files:
+Looks in PROJECT_BASE/Predicted_Condition_04AMmigration/ for per-task CSV files:
   - task_XX_correlations.csv        -> all_correlations.csv + summary_statistics.csv
   - mate_pgs_correlations_task_XX.csv -> mate_pgs_correlations_all.csv
 
@@ -15,8 +15,8 @@ import sys
 from pathlib import Path
 
 # ── Directories ──────────────────────────────────────────────────────────────
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_03EnvLatentAM")
-CONDITION_DIR = PROJECT_BASE / "Predicted_Condition_03EnvLatentAM"
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_04AMmigration")
+CONDITION_DIR = PROJECT_BASE / "Predicted_Condition_04AMmigration"
 
 
 def compile_correlations(condition_dir: Path) -> None:
@@ -96,7 +96,7 @@ def compile_mate_pgs(condition_dir: Path) -> None:
 def main() -> None:
     print("\n" + "=" * 70)
     print("COMPILE PREDICTED CONDITION RESULTS")
-    print("02_AElatentAM: bivariate AE model with latent AM on trait 2")
+    print("04_AMmigration: AE model with latent AM on trait 1, island migration on trait 2")
     print("=" * 70)
     print(f"Condition directory: {CONDITION_DIR}")
 
