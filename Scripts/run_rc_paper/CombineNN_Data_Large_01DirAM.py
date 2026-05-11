@@ -21,7 +21,9 @@ from pathlib import Path
 # CONFIGURATION
 # ============================================================================
 
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN_Paper/01DirAM")
+CONDITION_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN_Paper/01DirAM")
+OUTPUT_BASE    = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN_Paper")
+CONDITION_TAG  = "01DirAM"
 
 # ============================================================================
 # MAIN FUNCTIONS
@@ -32,10 +34,10 @@ def load_all_conditions():
     print("\n" + "="*70)
     print("COMBINING NEURAL NETWORK TRAINING DATA")
     print("="*70)
-    print(f"Project base: {PROJECT_BASE}\n")
-    
+    print(f"Condition base: {CONDITION_BASE}\n")
+
     # Find all condition directories
-    condition_dirs = sorted([d for d in PROJECT_BASE.iterdir() 
+    condition_dirs = sorted([d for d in CONDITION_BASE.iterdir() 
                             if d.is_dir() and d.name.startswith('Condition_')])
     
     print(f"Found {len(condition_dirs)} condition directories\n")
@@ -80,7 +82,7 @@ def load_all_conditions():
     
     # Save condition summary
     summary_df = pd.DataFrame(condition_summary)
-    summary_file = PROJECT_BASE / "data_collection_summary.csv"
+    summary_file = OUTPUT_BASE / f"data_collection_summary_{CONDITION_TAG}.csv"
     summary_df.to_csv(summary_file, index=False)
     print(f"\n✓ Saved collection summary to {summary_file}")
     
@@ -141,15 +143,15 @@ def save_datasets(combined_df, train_df=None, test_df=None):
     print("\nSaving datasets...")
     
     # Save combined dataset
-    combined_file = PROJECT_BASE / "nn_training_combined.csv"
+    combined_file = OUTPUT_BASE / f"nn_training_combined_{CONDITION_TAG}.csv"
     combined_df.to_csv(combined_file, index=False)
     print(f"✓ Saved combined dataset to {combined_file}")
     print(f"  Shape: {combined_df.shape}")
     
     # Save train/test splits if provided
     if train_df is not None and test_df is not None:
-        train_file = PROJECT_BASE / "nn_training_train.csv"
-        test_file = PROJECT_BASE / "nn_training_test.csv"
+        train_file = OUTPUT_BASE / f"nn_training_train_{CONDITION_TAG}.csv"
+        test_file = OUTPUT_BASE / f"nn_training_test_{CONDITION_TAG}.csv"
         
         train_df.to_csv(train_file, index=False)
         test_df.to_csv(test_file, index=False)
