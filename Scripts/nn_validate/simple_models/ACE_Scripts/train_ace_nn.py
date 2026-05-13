@@ -31,6 +31,8 @@ Usage:
     python train_ace_nn.py --data ace_training_data.csv --include_n_pairs --epochs 500 --device cpu
     # 4. train with gaussian prior instead of boxuniform
     python train_ace_nn.py --data ace_training_data_N20000.csv --epochs 500 --device cpu --prior_type gaussian --output results_ace_npe_no_n_gaussianprior
+    #5. train with boxuniform prior with N_pairs feature
+    python train_ace_nn.py --data ace_training_data.csv --include_n_pairs --epochs 500 --device cpu --prior_type gaussian --output results_ace_npe_gaussian_prior
 """
 
 import math
@@ -374,14 +376,17 @@ def main():
 
     feature_cols = ['mz_var', 'mz_cov', 'dz_var', 'dz_cov']
     if args.include_n_pairs:
-        if 'log_N_pairs' in df.columns:
-            feature_cols.append('log_N_pairs')
-            print("  Including log(N_pairs) as feature  [log-scale improves uncertainty calibration]")
+        if 'se_proxy' in df.columns:
+            feature_cols.append('se_proxy')
+            print("  Including se_proxy (1/√N_pairs) as feature")
+        elif 'log_N_pairs' in df.columns:
+            df['se_proxy'] = 1.0 / np.sqrt(np.exp(df['log_N_pairs']))
+            feature_cols.append('se_proxy')
+            print("  Including se_proxy (1/√N_pairs) as feature  [derived from log_N_pairs]")
         elif 'N_pairs' in df.columns:
-            # Legacy: compute log on-the-fly so old data files still work
-            df['log_N_pairs'] = np.log(df['N_pairs'])
-            feature_cols.append('log_N_pairs')
-            print("  Including log(N_pairs) as feature  [computed from N_pairs column]")
+            df['se_proxy'] = 1.0 / np.sqrt(df['N_pairs'])
+            feature_cols.append('se_proxy')
+            print("  Including se_proxy (1/√N_pairs) as feature  [derived from N_pairs]")
 
     X = df[feature_cols].values
     y = df[ACE_PARAM_NAMES].values

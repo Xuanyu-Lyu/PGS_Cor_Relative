@@ -93,6 +93,7 @@ def generate_training_data(n_samples=20000, n_pairs_options=None, seed=42):
             'dz_cov': dz_cov[0, 1],
             'N_pairs': N_pairs,
             'log_N_pairs': np.log(N_pairs),
+            'se_proxy': 1.0 / np.sqrt(N_pairs),
             'A': A,
             'C': C,
             'E': E,

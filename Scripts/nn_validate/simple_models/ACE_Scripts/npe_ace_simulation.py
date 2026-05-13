@@ -16,7 +16,7 @@ Output:
 Usage:
     python npe_ace_simulation.py
     python npe_ace_simulation.py --conditions ace_test_conditions.csv \
-                                  --model_dir results_ace_npe \
+                                  --model_dir results_ace_npe_se_proxy \
                                   --n_posterior 1000 \
                                   --seed 2025 \
                                   --output npe_simulation_results.csv
@@ -63,9 +63,10 @@ def load_posterior(model_dir: Path):
     feature_cols   = config.get("feature_cols",
                                 ["mz_var", "mz_cov", "dz_var", "dz_cov"])
     param_names    = config.get("param_names", ACE_PARAM_NAMES)
-    # Detect whether the model was trained with log(N_pairs) or raw N_pairs
-    include_n_pairs  = ("N_pairs" in feature_cols) or ("log_N_pairs" in feature_cols)
-    use_log_n_pairs  = "log_N_pairs" in feature_cols
+    # Detect how N_pairs was encoded during training
+    include_n_pairs  = any(c in feature_cols for c in ("N_pairs", "log_N_pairs", "se_proxy"))
+    use_se_proxy     = "se_proxy" in feature_cols
+    use_log_n_pairs  = (not use_se_proxy) and ("log_N_pairs" in feature_cols)
 
     posterior_path = model_dir / "posterior.pkl"
     if not posterior_path.exists():
@@ -83,7 +84,7 @@ def load_posterior(model_dir: Path):
     if hasattr(posterior, "_neural_net"):
         posterior._neural_net.eval()
 
-    return posterior, scaler, feature_cols, param_names, include_n_pairs, use_log_n_pairs
+    return posterior, scaler, feature_cols, param_names, include_n_pairs, use_log_n_pairs, use_se_proxy
 
 
 def posterior_stats(posterior, x_scaled_1d: np.ndarray,
@@ -142,11 +143,11 @@ def run_simulation(conditions_csv: str,
     print(f"  Output file     : {output_csv}\n")
 
     # ---- Load model --------------------------------------------------------
-    posterior, scaler, feature_cols, param_names, include_n_pairs, use_log_n_pairs = \
+    posterior, scaler, feature_cols, param_names, include_n_pairs, use_log_n_pairs, use_se_proxy = \
         load_posterior(model_dir)
     print(f"Loaded posterior  — features   : {feature_cols}")
     print(f"                  — params     : {param_names}")
-    print(f"                  — log(N)     : {use_log_n_pairs}\n")
+    print(f"                  — N encoding : {'se_proxy (1/√N)' if use_se_proxy else 'log(N)' if use_log_n_pairs else 'raw N' if include_n_pairs else 'none'}\n")
 
     # ---- Load conditions ---------------------------------------------------
     cond_df = pd.read_csv(conditions_csv)
@@ -185,9 +186,12 @@ def run_simulation(conditions_csv: str,
             # ---- Build feature vector (matching training feature order) -----
             base_feats = [mz_var, mz_cov, dz_var, dz_cov]
             if include_n_pairs:
-                # Use log(N) if the model was trained that way (recommended),
-                # otherwise fall back to raw N for backwards compatibility.
-                base_feats.append(np.log(float(N)) if use_log_n_pairs else float(N))
+                if use_se_proxy:
+                    base_feats.append(1.0 / np.sqrt(float(N)))
+                elif use_log_n_pairs:
+                    base_feats.append(np.log(float(N)))
+                else:
+                    base_feats.append(float(N))
             x_raw    = np.array(base_feats, dtype=np.float32).reshape(1, -1)
             x_scaled = scaler.transform(x_raw).flatten()
 

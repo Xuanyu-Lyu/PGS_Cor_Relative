@@ -13,7 +13,7 @@ Unlike the old point-prediction script, this version reports:
 
 Usage:
     python predict_from_observed_ace.py
-    python predict_from_observed_ace.py --n_samples 500 --model_dir results_ace_npe
+    python predict_from_observed_ace.py --n_samples 500 --model_dir results_ace_npe_se_proxy --output 
 """
 
 import sys

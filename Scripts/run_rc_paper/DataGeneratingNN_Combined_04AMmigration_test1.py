@@ -1,25 +1,16 @@
 """
-Data Generation Script for Neural Network Training - COMBINED VERSION
+Data Generation Script for Neural Network Training - COMBINED VERSION (test1)
 
-This script runs forward-time simulations and immediately analyzes them without
-saving raw simulation data. This increases efficiency and saves storage space.
-
-This simulates one condition:
-4) AM-Migration model:
-   - Trait 1: EA (Educational Attainment) — the assortative mating trait.
-   - Trait 2: Migration — correlated with EA; all genetic effects are latent
-     (prop_h2_latent2 = 1, so no observable PGS signal for migration).
-   - Genetic (rg) and environmental (re) correlations between traits.
-   - Within-trait vertical transmission only (f11, f22 non-zero; f12 = f21 = 0).
-   - No shared environmental effects (s_mat = 0 for all traits).
-   - Assortative mating on EA (trait 1) only within each island (am11 varies).
-   - 5 islands with migration sorted by trait 2 (migration trait).
-   - Migration proportion (move_p) varies as a sampled parameter.
-   - 40 generations to allow equilibration.
+Identical setup to 04AMmigration with two modifications:
+  1. Only 1,000 total conditions (vs 20,000).
+  2. Each simulation is checked for V_y equilibrium before its results are used.
+     Equilibrium: relative change in V_y (both traits) is < 5% for every
+     consecutive generation pair in the last EQUILIBRIUM_CHECK_GENS generations.
+     Conditions that do NOT reach equilibrium are flagged and skipped.
 
 Usage:
-    python DataGeneratingNN_Combined_04AMmigration.py
-    (Run via SLURM array job - see submit_datagenerating_nn_combined_04AMmigration.sh)
+    python DataGeneratingNN_Combined_04AMmigration_test1.py
+    (Run via SLURM array job - see submit_datagenerating_nn_combined_04AMmigration_test1.sh)
 """
 
 import numpy as np
@@ -43,15 +34,15 @@ from extract_measures import extract_individual_measures, compute_correlations_f
 # ============================================================================
 
 # Directory setup
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN_Paper/04AMmigration")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN_Paper/04AMmigration_test1")
 
 # Get SLURM array task ID
 SLURM_TASK_ID = int(os.environ.get('SLURM_ARRAY_TASK_ID', '1'))
 
 # Simulation parameters
 ITERATIONS_PER_CONDITION = 1   # Each condition is unique; one simulation per condition
-CONDITIONS_PER_JOB = 40        # Conditions (simulations) processed per SLURM job
-N_CONDITIONS_TOTAL = 20000     # Total unique conditions (500 jobs × 40 conditions)
+CONDITIONS_PER_JOB = 20        # Conditions (simulations) processed per SLURM job
+N_CONDITIONS_TOTAL = 1000      # Total unique conditions (50 jobs × 20 conditions)
 POP_SIZE = 40000               # Must be divisible by N_ISLANDS * 2
 N_ISLANDS = 5                  # Number of islands (40000 / (5*2) = 4000 per sex per island)
 N_GENERATIONS = 40
@@ -60,22 +51,25 @@ N_CV = 1000
 MAF_MIN = 0.01
 MAF_MAX = 0.5
 
+# Equilibrium check parameters
+EQUILIBRIUM_THRESHOLD = 0.05   # Max relative change in V_y to be considered at equilibrium
+EQUILIBRIUM_CHECK_GENS = 5     # Number of final consecutive generation pairs to check
+
 # Parameter bounds for uniform sampling: [min, max]
 # Trait 1 = EA (mating trait), Trait 2 = Migration (latent genetic, no PGS)
 PARAM_BOUNDS = {
-    #'vg1':             [0.4,  0.8],   # EA total genetic variance
-    'vg2':             [0.1,  0.9],   # Migration total genetic variance
+    'vg1':             [0.4,  0.8],   # EA total genetic variance
+    'vg2':             [0.2,  0.8],   # Migration total genetic variance
     'f11':             [0.05, 0.30],  # Within-trait vertical transmission for EA
     'f22':             [0.05, 0.30],  # Within-trait vertical transmission for migration
-    're':              [0.0,  0.5],   # Environmental correlation between traits
+    're':              [0.0,  0.4],   # Environmental correlation between traits
     'am11':            [0.25, 0.75],  # Within-island spousal correlation on EA (trait 1)
     'rg':              [0.01, 0.30],  # Genetic correlation between EA and migration
-    'move_p':          [0.01, 0.30],  # Proportion of each island's population that migrates per generation
+    'move_p':          [0.01, 0.15],  # Proportion of each island's population that migrates per generation
 }
 
 # Fixed parameters (not sampled)
 FIXED_PARAMS = {
-    'vg1': 0.45,              # EA total genetic variance (fixed for all conditions)
     'prop_h2_latent1': 0.6,   # EA: proportion of h2 that is latent (no PGS)
     'prop_h2_latent2': 1.0,   # Migration: all genetic effects are latent (no observable PGS)
     'f12': 0.0,               # No cross-trait vertical transmission
@@ -218,9 +212,6 @@ def setup_matrices(params):
     a_mat = np.array([[a11, 0.0], [a21, a22]])
 
     # Total genetic covariance matrix
-    # covg[0,0] = vg1, covg[1,1] = vg2
-    # covg[0,1] = rg * sqrt(vg_lat1) * sqrt(vg2)  (only latent part of trait 1 co-varies
-    #             with all of trait 2 since trait 2 is entirely latent)
     covg_mat = (delta_mat @ k2_matrix @ delta_mat.T) + (a_mat @ k2_matrix @ a_mat.T)
 
     # Environmental covariance
@@ -240,7 +231,7 @@ def setup_matrices(params):
     # No shared environmental effects
     s_mat = np.zeros((2, 2))
 
-    # Within-island AM on EA (trait 1); am_list also needed by base class constructor
+    # Within-island AM on EA (trait 1)
     am11             = params['am11']
     am_list          = [am11 for _ in range(N_GENERATIONS)]
     within_island_am = am11   # constant across generations
@@ -256,6 +247,71 @@ def setup_matrices(params):
         'covy_mat':         covy_mat,
         'k2_matrix':        k2_matrix,
     }
+
+
+# ============================================================================
+# EQUILIBRIUM CHECK
+# ============================================================================
+
+def check_equilibrium(results, threshold=EQUILIBRIUM_THRESHOLD,
+                      n_gens_check=EQUILIBRIUM_CHECK_GENS):
+    """
+    Check whether V_y has reached equilibrium by the end of the simulation.
+
+    Equilibrium is defined as: for every consecutive generation pair in the
+    last `n_gens_check` generations, the relative change in V_y for BOTH
+    traits is strictly less than `threshold` (default 5%).
+
+    Parameters
+    ----------
+    results : dict
+        The dictionary returned by sim.run_simulation().
+    threshold : float
+        Maximum allowed relative change in V_y per generation (default 0.05).
+    n_gens_check : int
+        Number of final consecutive generation pairs to examine.
+
+    Returns
+    -------
+    equilibrium_reached : bool
+    vy_history : list of [Vy1, Vy2] per recorded generation
+    max_relative_change : float
+        The largest relative change observed across all checked generation pairs
+        and both traits.
+    """
+    summary = results.get('SUMMARY.RES', [])
+
+    # Extract diagonal of VP (phenotypic variance) for each generation
+    vy_history = []
+    for s in summary:
+        vp = s.get('VP', None)
+        if vp is not None:
+            vp_arr = np.array(vp)
+            vy_history.append(np.diag(vp_arr).tolist())   # [Vy1, Vy2]
+
+    if len(vy_history) < 2:
+        return False, vy_history, np.nan
+
+    # We need at least n_gens_check + 1 entries to form n_gens_check pairs
+    actual_pairs = min(n_gens_check, len(vy_history) - 1)
+    check_start  = len(vy_history) - actual_pairs - 1   # inclusive index of first "prev"
+
+    equilibrium_reached = True
+    max_rel_change = 0.0
+
+    for i in range(check_start, len(vy_history) - 1):
+        prev_vy = np.array(vy_history[i])
+        curr_vy = np.array(vy_history[i + 1])
+
+        for j in range(len(prev_vy)):
+            if prev_vy[j] > 0:
+                rel_change = abs(curr_vy[j] - prev_vy[j]) / prev_vy[j]
+                if rel_change > max_rel_change:
+                    max_rel_change = rel_change
+                if rel_change >= threshold:
+                    equilibrium_reached = False
+
+    return equilibrium_reached, vy_history, max_rel_change
 
 
 # ============================================================================
@@ -345,7 +401,16 @@ def extract_and_analyze_relationships(results, iteration):
 
 
 def run_single_iteration(iteration, condition_name, params, matrices):
-    """Run a single simulation iteration and analyze it immediately."""
+    """
+    Run a single simulation iteration, verify equilibrium, and analyze it.
+
+    Returns
+    -------
+    correlations_df : pd.DataFrame or None
+    equilibrium_reached : bool
+    max_rel_change : float
+    vy_history : list
+    """
     print(f"\n  Iteration {iteration + 1}/{ITERATIONS_PER_CONDITION}")
 
     # Set seed for reproducibility
@@ -356,7 +421,6 @@ def run_single_iteration(iteration, condition_name, params, matrices):
     within_island_am = matrices.pop('within_island_am')
 
     # Initialize island simulation
-    # mate_on_trait is set internally by IslandMigrationSimulation via mating_trait=1
     sim = IslandMigrationSimulation(
         n_islands=N_ISLANDS,
         move_p=params['move_p'],
@@ -383,6 +447,16 @@ def run_single_iteration(iteration, condition_name, params, matrices):
     print(f"    Running simulation ({N_GENERATIONS} generations)...")
     results = sim.run_simulation()
 
+    # ---- Equilibrium check ----
+    equilibrium_reached, vy_history, max_rel_change = check_equilibrium(results)
+
+    if equilibrium_reached:
+        print(f"    ✓ Equilibrium reached (max relative ΔV_y = {max_rel_change:.4f})")
+    else:
+        print(f"    ✗ Equilibrium NOT reached (max relative ΔV_y = {max_rel_change:.4f} "
+              f"≥ {EQUILIBRIUM_THRESHOLD:.0%}). Skipping analysis.")
+        return None, False, max_rel_change, vy_history
+
     # Trim results to only keep final generations to save memory
     mates_indices = (
         FINAL_GENS + [FINAL_GENS[-1] + 1]
@@ -403,16 +477,16 @@ def run_single_iteration(iteration, condition_name, params, matrices):
         }
     }
 
-    # Analyze relationships immediately
+    # Analyze relationships
     print(f"    Analyzing relationships...")
     correlations_df = extract_and_analyze_relationships(trimmed_results, iteration)
 
     if correlations_df is not None:
         print(f"    ✓ Computed {len(correlations_df)} correlations")
-        return correlations_df
     else:
         print(f"    ✗ No correlations computed")
-        return None
+
+    return correlations_df, True, max_rel_change, vy_history
 
 
 # ============================================================================
@@ -425,7 +499,7 @@ def run_condition(condition, project_base):
 
     print(f"\n{'#'*70}")
     print(f"# {condition_name}")
-    print(f"# Parameters (04AMmigration):")
+    print(f"# Parameters (04AMmigration_test1):")
     print(f"#   EA (trait 1):        vg1={condition['vg1']:.4f}, "
           f"prop_h2_latent1={condition['prop_h2_latent1']:.4f}, am11={condition['am11']:.4f}")
     print(f"#   Migration (trait 2): vg2={condition['vg2']:.4f}, "
@@ -435,6 +509,8 @@ def run_condition(condition, project_base):
     print(f"#   f11={condition['f11']:.4f}, f22={condition['f22']:.4f} "
           f"(within-trait VT only; f12=f21=0, s=0)")
     print(f"# Running {ITERATIONS_PER_CONDITION} iterations, {N_GENERATIONS} generations")
+    print(f"# Equilibrium check: last {EQUILIBRIUM_CHECK_GENS} gen-pairs, "
+          f"threshold={EQUILIBRIUM_THRESHOLD:.0%}")
     print(f"# SLURM Task ID: {SLURM_TASK_ID}")
     print(f"{'#'*70}\n")
 
@@ -460,19 +536,35 @@ def run_condition(condition, project_base):
         iter_info = {
             'Iteration': iteration + 1,
             'Status': 'Failed',
+            'Equilibrium_Reached': False,
+            'Max_Relative_Vy_Change': np.nan,
             'Error': None,
             'N_Correlations': 0
         }
 
         try:
-            correlations_df = run_single_iteration(
+            correlations_df, eq_reached, max_rel_change, vy_history = run_single_iteration(
                 iteration, condition_name, condition, matrices.copy()
             )
 
-            if correlations_df is not None:
+            iter_info['Equilibrium_Reached'] = eq_reached
+            iter_info['Max_Relative_Vy_Change'] = round(float(max_rel_change), 6) \
+                if not np.isnan(max_rel_change) else np.nan
+
+            if not eq_reached:
+                iter_info['Status'] = 'No_Equilibrium'
+                # Save final V_y values even for non-equilibrium runs (diagnostic)
+                if vy_history:
+                    iter_info['Final_Vy1'] = round(vy_history[-1][0], 6)
+                    iter_info['Final_Vy2'] = round(vy_history[-1][1], 6)
+            elif correlations_df is not None:
                 iter_info['Status'] = 'Success'
                 iter_info['N_Correlations'] = len(correlations_df)
+                if vy_history:
+                    iter_info['Final_Vy1'] = round(vy_history[-1][0], 6)
+                    iter_info['Final_Vy2'] = round(vy_history[-1][1], 6)
                 all_correlations.append(correlations_df)
+
         except Exception as e:
             iter_info['Error'] = str(e)
             print(f"    ✗ Error in Iteration {iteration+1}: {e}")
@@ -544,10 +636,14 @@ def run_condition(condition, project_base):
             print(f"  ✓ Saved NN training format to {nn_training_file}")
 
         n_success = sum(1 for s in iteration_status if s['Status'] == 'Success')
-        print(f"\n  Summary: {n_success}/{ITERATIONS_PER_CONDITION} iterations successful")
+        n_no_eq   = sum(1 for s in iteration_status if s['Status'] == 'No_Equilibrium')
+        print(f"\n  Summary: {n_success}/{ITERATIONS_PER_CONDITION} iterations successful, "
+              f"{n_no_eq} skipped (no equilibrium)")
         return True
     else:
-        print(f"\n  ⚠ No correlations computed for {condition_name}")
+        n_no_eq = sum(1 for s in iteration_status if s['Status'] == 'No_Equilibrium')
+        print(f"\n  ⚠ No correlations computed for {condition_name} "
+              f"({n_no_eq}/{ITERATIONS_PER_CONDITION} iterations did not reach equilibrium)")
         return False
 
 
@@ -558,18 +654,21 @@ def run_condition(condition, project_base):
 def main():
     """Main execution function."""
     print("\n" + "="*70)
-    print("DATA GENERATION FOR NEURAL NETWORK TRAINING - COMBINED VERSION")
-    print("Condition: 04AMmigration (EA mating + migration trait)")
+    print("DATA GENERATION FOR NEURAL NETWORK TRAINING - COMBINED VERSION (test1)")
+    print("Condition: 04AMmigration_test1 (EA mating + migration trait)")
     print("="*70)
     print(f"Project base: {PROJECT_BASE}")
     print(f"SLURM Task ID: {SLURM_TASK_ID}")
     print(f"Population size: {POP_SIZE}")
     print(f"Generations: {N_GENERATIONS} (analyzing final 3: {FINAL_GENS})")
     print(f"Iterations per condition: {ITERATIONS_PER_CONDITION}")
+    print(f"Total conditions: {N_CONDITIONS_TOTAL} (50 jobs × {CONDITIONS_PER_JOB})")
     print(f"Causal variants: {N_CV}")
     print(f"Fixed: prop_h2_latent2=1, f12=f21=0, s=0, am12=am21=am22=0")
     print(f"Islands: {N_ISLANDS} (migration sorted by trait 2, mating on trait 1 within islands)")
     print(f"Sampled: move_p in {PARAM_BOUNDS['move_p']}")
+    print(f"Equilibrium check: last {EQUILIBRIUM_CHECK_GENS} consecutive gen-pairs, "
+          f"threshold={EQUILIBRIUM_THRESHOLD:.0%} relative change in V_y")
     print("="*70 + "\n")
 
     # Save/load conditions configuration

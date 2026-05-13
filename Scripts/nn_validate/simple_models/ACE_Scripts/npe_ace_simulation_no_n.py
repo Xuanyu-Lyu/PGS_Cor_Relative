@@ -19,7 +19,7 @@ Output:
 Usage:
     python npe_ace_simulation_no_n.py
     python npe_ace_simulation_no_n.py --conditions ace_test_conditions.csv \
-                                       --model_dir results_ace_npe_no_n \
+                                       --model_dir results_ace_npe_no_n_gaussianprior \
                                        --n_posterior 1000 \
                                        --seed 2025 \
                                        --output npe_simulation_results_no_n.csv
