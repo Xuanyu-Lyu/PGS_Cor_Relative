@@ -39,24 +39,24 @@ PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predic
 CONDITION = {
     'name': 'Predicted_Condition_04AMmigration',
     # Trait 1 (EA): AE model, latent AM (posterior mean)
-    'prop_h2_latent1': 0.5959,
-    'vg1': 0.3670,
-    'am11': 0.3257,   # latent AM on trait 1
-    'f11':  0.0078,   # vertical transmission (trait 1; posterior mean)
+    'prop_h2_latent1': 0.7359,
+    'vg1': 0.4467,
+    'am11': 0.3224,   # latent AM on trait 1
+    'f11':  0.0569,   # vertical transmission (trait 1; posterior mean)
     # Trait 2 (migration): fully latent, no AM, no VT
     'prop_h2_latent2': 1.0,   # fixed
-    'vg2': 0.5379,
+    'vg2': 0.5928,
     'am22': 0.0,
-    'f22':  0.1593,   # vertical transmission (trait 2; posterior mean)
+    'f22':  0.1867,   # vertical transmission (trait 2; posterior mean)
     # Cross-trait parameters (posterior means)
     'f12': 0.0,
     'f21': 0.0,
     'am12': 0.0,
     'am21': 0.0,
-    'rg': 0.4252,     # genetic correlation
+    'rg': 0.4511,     # genetic correlation
     're': 0.1341,     # environmental correlation
     # Island migration
-    'move_p': 0.1631, # fraction migrating per generation (posterior mean)
+    'move_p': 0.1511, # fraction migrating per generation (posterior mean)
 }
 
 # Simulation parameters

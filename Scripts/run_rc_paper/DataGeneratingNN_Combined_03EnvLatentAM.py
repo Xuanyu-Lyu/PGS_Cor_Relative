@@ -54,28 +54,36 @@ MAF_MAX = 0.5
 
 # Parameter bounds for uniform sampling: [min, max]
 PARAM_BOUNDS = {
-    'prop_h2_latent1': [0.5,  0.9],
-    'prop_h2_latent2': [0.5,  0.9],
+    #'prop_h2_latent1': [0.5,  0.9],
+    #'prop_h2_latent2': [0.5,  0.9],
     'vg1':             [0.4,  0.8],
     'vg2':             [0.4,  0.8],
     'f11':             [0.05, 0.30],
     'f22':             [0.05, 0.30],
-    'f12':             [0.02, 0.25],
-    'f21':             [0.02, 0.25],
-    's11':             [0.0,  0.4],
-    's22':             [0.0,  0.4],
-    's12':             [0.0,  0.4],
-    's21':             [0.0,  0.4],
+    #'f12':             [0.02, 0.25],
+    #'f21':             [0.02, 0.25],
+    #'s11':             [0.0,  0.4],
+    #'s22':             [0.0,  0.4],
+    #'s12':             [0.0,  0.4],
+    #'s21':             [0.0,  0.4],
     're':              [0.0,  0.4],
     'am22':            [0.25, 0.75],
-    'rg':              [0.40, 0.90],
+    'rg':              [0.30, 0.90],
 }
 
 # Fixed parameters
 FIXED_PARAMS = {
+    'prop_h2_latent1': 0.7,   # Trait 1: 70% of genetic variance is latent (no PGS)
+    'prop_h2_latent2': 1.0,   # Trait 2: 100% of genetic variance is latent (no PGS)
     'am11': 0,
     'am12': 0,
     'am21': 0,
+    'f12': 0.0,               # No cross-trait vertical transmission
+    'f21': 0.0,               # No cross-trait vertical transmission
+    's11': 0.0,               # No shared environment for trait 1
+    's22': 0.0,               # No shared environment for trait 2
+    's12': 0.0,               # No cross-trait shared environment
+    's21': 0.0,               # No cross-trait shared environment
 }
 
 # Relationship types to analyze

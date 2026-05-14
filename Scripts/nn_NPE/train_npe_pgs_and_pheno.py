@@ -143,7 +143,7 @@ class PgsPhenoEmbeddingNet(nn.Module):
             nn.Dropout(dropout_rate),
 
             nn.Linear(hidden_sizes[0], hidden_sizes[1]),
-            nn.LayerNorm(hidden_sizes[1]),
+            #nn.LayerNorm(hidden_sizes[1]),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
         )
@@ -157,7 +157,7 @@ class PgsPhenoEmbeddingNet(nn.Module):
             nn.Dropout(dropout_rate),
 
             nn.Linear(hidden_sizes[2], hidden_sizes[3]),
-            nn.LayerNorm(hidden_sizes[3]),
+            #nn.LayerNorm(hidden_sizes[3]),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
         )
@@ -715,7 +715,7 @@ def main():
 
     density_estimator_fn = posterior_nn(
         model=args.flow_type,
-        embedding_net=nn.Identity(),
+        embedding_net=embedding_net,
         hidden_features=args.flow_hidden,
         num_transforms=args.flow_transforms,
         z_score_theta="independent",  # sbi z-scores theta internally
