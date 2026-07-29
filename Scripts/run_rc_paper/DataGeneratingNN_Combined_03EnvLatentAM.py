@@ -5,10 +5,11 @@ This script runs forward-time simulations and immediately analyzes them without
 saving raw simulation data. This increases efficiency and saves storage space.
 
 This simulates one condition:
-1) AE model with all environmental effects (vertical transmission f and shared
-   environment s for both traits and cross-trait), genetic (rg) and environmental
-   (re) correlations between traits, and single-trait phenotypic mating on
-   latent trait 1 (AM on latent factor 1).
+1) AE model with within-trait vertical transmission (f11, f22) for both traits,
+   genetic (rg) and environmental (re) correlations between traits, and
+   single-trait phenotypic mating on latent trait 2 (AM on latent factor 2).
+   Cross-trait vertical transmission (f12, f21) and shared environment (s) are
+   disabled (fixed to 0).
 
 Usage:
     python DataGeneratingNN_Combined_03EnvLatentAM.py
@@ -215,7 +216,7 @@ def setup_matrices(params):
     # Total phenotypic covariance
     covy_mat = covg_mat + cove_mat
 
-    # Get mate correlation for trait 1 (single-trait AM on trait 1 only)
+    # Get mate correlation for trait 2 (single-trait AM on trait 2 only)
     am22 = params['am22']
 
     # Vertical transmission matrix
@@ -232,7 +233,7 @@ def setup_matrices(params):
     s22 = params['s22']
     s_mat = np.array([[s11, s12], [s21, s22]])
 
-    # AM list: scalar values for single-trait mating on trait 1
+    # AM list: scalar values for single-trait mating on trait 2
     am_list = [am22 for _ in range(N_GENERATIONS)]
 
     return {

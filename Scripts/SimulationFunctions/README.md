@@ -227,11 +227,11 @@ All matrices are 2×2 (one row/column per trait) unless noted.
 |--------|-----------|-------------|
 | `cove_mat` | `cove_mat` | Covariance matrix of the environment term **E** |
 | `f_mat` | `f_mat` | Vertical transmission matrix. `f_mat[i,j]` = path from parent trait j to offspring F component i |
-| `s_mat` | `s_mat` | Social homogamy / assortment on shared environment (set to zeros if unused) |
+| `s_mat` | `s_mat` | Shared-environment / social-homogamy path matrix. **Currently not applied by the simulation engine** — it is stored and written to the summary file only. Pass a zeros matrix. |
 | `a_mat` | `a_mat` | Latent genetic path matrix. Used to derive the observed/latent SNP split |
 | `d_mat` | `d_mat` | Observed genetic path matrix (same interpretation as `a_mat` for observed SNPs) |
 | `covy_mat` | `covy_mat` | Target phenotypic covariance matrix (used to scale/validate the setup) |
-| `k2_matrix` | `k2_matrix` | K2 matrix: genetic nurture / indirect genetic effects |
+| `k2_matrix` | `k2_matrix` | Genetic-relatedness (K2) matrix. **Not applied inside the simulation loop** — genetic covariance is built from `d_mat` / `a_mat` during condition setup; this value is stored and written to the summary file only. |
 | `mt_mat` | `mt_mat` | Diagonal 2×2 mtDNA path matrix. `mt_mat[i,i]` = path from mother's $Y_i$ to offspring's $MT_i$. **Must be diagonal** (no cross-trait effects). Default: `None` (treated as zero matrix) |
 
 See [Section 8](#8-matrix-construction-guide) for how to build these from heritabilities.

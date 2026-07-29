@@ -4,7 +4,7 @@ Data Generation Script for Neural Network Training - COMBINED VERSION
 This script runs forward-time simulations and immediately analyzes them without
 saving raw simulation data. This increases efficiency and saves storage space.
 
-This simulate one conditions: 
+This simulates one condition:
 1) AE model on both EA and latent mating factors, with single-trait phenotypic mating on trait 2 (AM on latent factor 2)
 
 Usage:

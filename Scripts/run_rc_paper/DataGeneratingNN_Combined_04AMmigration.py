@@ -10,7 +10,7 @@ This simulates one condition:
    - Trait 2: Migration — correlated with EA; all genetic effects are latent
      (prop_h2_latent2 = 1, so no observable PGS signal for migration).
    - Genetic (rg) and environmental (re) correlations between traits.
-   - Within-trait vertical transmission only (f11, f22 non-zero; f12 = f21 = 0).
+   - Vertical transmission on EA only (f11 non-zero; f22 = f12 = f21 = 0).
    - No shared environmental effects (s_mat = 0 for all traits).
    - Assortative mating on EA (trait 1) only within each island (am11 varies).
    - 5 islands with migration sorted by trait 2 (migration trait).
@@ -61,23 +61,24 @@ MAF_MIN = 0.01
 MAF_MAX = 0.5
 
 # Parameter bounds for uniform sampling: [min, max]
+# Ranges follow the condition-04 test notebook; f22 is fixed at 0 (see FIXED_PARAMS).
 # Trait 1 = EA (mating trait), Trait 2 = Migration (latent genetic, no PGS)
 PARAM_BOUNDS = {
-    #'vg1':             [0.4,  0.8],   # EA total genetic variance
-    'vg2':             [0.1,  0.9],   # Migration total genetic variance
+    #'vg1':             [0.4,  0.8],   # EA total genetic variance (fixed below)
+    'vg2':             [0.1,  0.7],   # Migration total genetic variance (restricted < 0.7)
     'f11':             [0.05, 0.30],  # Within-trait vertical transmission for EA
-    'f22':             [0.05, 0.30],  # Within-trait vertical transmission for migration
     're':              [0.0,  0.5],   # Environmental correlation between traits
     'am11':            [0.25, 0.75],  # Within-island spousal correlation on EA (trait 1)
-    'rg':              [0.01, 0.30],  # Genetic correlation between EA and migration
+    'rg':              [0.01, 0.60],  # Genetic correlation between EA and migration
     'move_p':          [0.01, 0.30],  # Proportion of each island's population that migrates per generation
 }
 
-# Fixed parameters (not sampled)
+# Fixed parameters (not sampled) -- matching the condition-04 test setup
 FIXED_PARAMS = {
     'vg1': 0.45,              # EA total genetic variance (fixed for all conditions)
     'prop_h2_latent1': 0.6,   # EA: proportion of h2 that is latent (no PGS)
     'prop_h2_latent2': 1.0,   # Migration: all genetic effects are latent (no observable PGS)
+    'f22': 0.0,               # Within-trait VT for migration fixed at 0 (per tests)
     'f12': 0.0,               # No cross-trait vertical transmission
     'f21': 0.0,               # No cross-trait vertical transmission
     'am12': 0.0,              # No cross-mate AM
@@ -186,7 +187,7 @@ def setup_matrices(params):
     Trait 2 = Migration: prop_h2_latent2 = 1 (all genetic effects are latent;
                          d_mat second diagonal = 0, so no observable PGS signal).
 
-    Vertical transmission is within-trait only (f12 = f21 = 0).
+    Vertical transmission on EA only (f11; f22 = f12 = f21 = 0).
     No shared environmental effects (s_mat = 0).
     Within-island AM on EA (trait 1); migration sorted by trait 2 across 5 islands.
     """
@@ -432,8 +433,8 @@ def run_condition(condition, project_base):
           f"prop_h2_latent2={condition['prop_h2_latent2']:.4f} (fixed=1)")
     print(f"#   Islands: {N_ISLANDS}, move_p={condition['move_p']:.4f}")
     print(f"#   rg={condition['rg']:.4f}, re={condition['re']:.4f}")
-    print(f"#   f11={condition['f11']:.4f}, f22={condition['f22']:.4f} "
-          f"(within-trait VT only; f12=f21=0, s=0)")
+    print(f"#   f11={condition['f11']:.4f}, f22={condition['f22']:.4f} (fixed=0) "
+          f"(EA vertical transmission only; f12=f21=0, s=0)")
     print(f"# Running {ITERATIONS_PER_CONDITION} iterations, {N_GENERATIONS} generations")
     print(f"# SLURM Task ID: {SLURM_TASK_ID}")
     print(f"{'#'*70}\n")
@@ -567,7 +568,7 @@ def main():
     print(f"Generations: {N_GENERATIONS} (analyzing final 3: {FINAL_GENS})")
     print(f"Iterations per condition: {ITERATIONS_PER_CONDITION}")
     print(f"Causal variants: {N_CV}")
-    print(f"Fixed: prop_h2_latent2=1, f12=f21=0, s=0, am12=am21=am22=0")
+    print(f"Fixed: prop_h2_latent2=1, f22=0, f12=f21=0, s=0, am12=am21=am22=0")
     print(f"Islands: {N_ISLANDS} (migration sorted by trait 2, mating on trait 1 within islands)")
     print(f"Sampled: move_p in {PARAM_BOUNDS['move_p']}")
     print("="*70 + "\n")

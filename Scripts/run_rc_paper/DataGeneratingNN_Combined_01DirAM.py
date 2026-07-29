@@ -4,13 +4,16 @@ Data Generation Script for Neural Network Training - COMBINED VERSION
 This script runs forward-time simulations and immediately analyzes them without
 saving raw simulation data. This increases efficiency and saves storage space.
 
-This simulate two conditions: 
-1) only AE + Phenotypic AM on trait 1
-2) AEF + Phenotypic AM on trait 2
+This simulates one condition (Direct AM):
+1) Two independent traits with observable + latent additive genetic components
+   (AE), within-trait vertical transmission on trait 2 (f22), and direct
+   phenotypic assortative mating on both traits (am11 and am22). No genetic or
+   environmental correlation between traits (rg = re = 0). A shared-environment
+   term (s22) is sampled but is not applied by the current simulation engine.
 
 Usage:
-    python DataGeneratingNN_Combined.py
-    (Run via SLURM array job - see submit_datagenerating_nn_combined.sh)
+    python DataGeneratingNN_Combined_01DirAM.py
+    (Run via SLURM array job - see submit_datagenerating_nn_combined_01DirAM.sh)
 """
 
 import numpy as np
@@ -207,7 +210,7 @@ def setup_matrices(params):
     # Total phenotypic covariance
     covy_mat = covg_mat + cove_mat
     
-    # Get mate correlation for trait 2 
+    # Assortative mating parameters (two-trait AM matrix; am11 & am22 on the diagonal)
     am11 = params['am11']
     am12 = params['am12']
     am21 = params['am21']
@@ -228,7 +231,7 @@ def setup_matrices(params):
     s22 = params['s22']
     s_mat = np.array([[s11, s12], [s21, s22]])
     
-    # AM list: list of scalar values for single-trait mating on trait 2
+    # AM list: per-generation 2x2 AM matrices (two-trait mating; mate_on_trait unset)
     am_mat = np.array([[am11, am12], [am21, am22]])
     am_list = [am_mat for _ in range(N_GENERATIONS)]    
     return {

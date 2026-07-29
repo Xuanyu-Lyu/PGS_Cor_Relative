@@ -1,11 +1,11 @@
 """
 Combine Neural Network Training Data from All Conditions - Large Dataset Version
 
-This script combines the individual condition results from DataGeneratingNN_Combined.py
+This script combines the individual condition results from DataGeneratingNN_Combined_02AElatentAM.py
 into a single training dataset for neural network model training.
 
 Usage:
-    python CombineNN_Data_Large.py [--split] [--test_size 0.2]
+    python CombineNN_Data_Large_02AElatentAM.py [--split] [--test_size 0.2]
     
 Options:
     --split: Create train/test split
