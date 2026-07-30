@@ -1,15 +1,11 @@
 """
 Combine Neural Network Training Data from All Conditions - Large Dataset Version
 
-This script combines the individual condition results from
-DataGeneratingNN_Combined_04AMmigration_test1.py into a single training
-dataset for neural network model training.
-
-Only conditions where at least one iteration reached V_y equilibrium
-(Status == 'Success' in iteration_status.csv) are included.
+This script combines the individual condition results from DataGeneratingNN_Combined_05AMmigration_noVT.py
+into a single training dataset for neural network model training.
 
 Usage:
-    python CombineNN_Data_Large_04AMmigration_test1.py [--split] [--test_size 0.2]
+    python CombineNN_Data_Large_05AMmigration_noVT.py [--split] [--test_size 0.2]
 
 Options:
     --split: Create train/test split
@@ -25,9 +21,9 @@ from pathlib import Path
 # CONFIGURATION
 # ============================================================================
 
-CONDITION_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN_Paper/04AMmigration_test1")
+CONDITION_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN_Paper/05AMmigration_noVT")
 OUTPUT_BASE    = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN_Paper")
-CONDITION_TAG  = "04AMmigration_test1"
+CONDITION_TAG  = "05AMmigration_noVT"
 
 # ============================================================================
 # MAIN FUNCTIONS
@@ -50,36 +46,18 @@ def load_all_conditions():
     all_data = []
     condition_summary = []
 
-    n_no_equilibrium = 0
-
     for i, condition_dir in enumerate(condition_dirs, 1):
         condition_name = condition_dir.name
-
-        # ---- Equilibrium status check ----
-        status_file = condition_dir / "iteration_status.csv"
-        if status_file.exists():
-            try:
-                status_df = pd.read_csv(status_file)
-                n_success = (status_df['Status'] == 'Success').sum()
-                n_no_eq   = (status_df['Status'] == 'No_Equilibrium').sum()
-                eq_note   = f"  ({n_no_eq} iter(s) skipped: no equilibrium)" if n_no_eq > 0 else ""
-            except Exception:
-                n_success = None
-                eq_note   = "  (could not read iteration_status.csv)"
-        else:
-            n_success = None
-            eq_note   = "  (no iteration_status.csv)"
 
         # Load NN training format file
         nn_file = condition_dir / "nn_training_format.csv"
 
         if not nn_file.exists():
-            print(f"{i:4d}. {condition_name}: ✗ No training file{eq_note}")
+            print(f"{i:3d}. {condition_name}: ✗ No training file")
             condition_summary.append({
                 'Condition': condition_name,
                 'Status': 'Missing',
-                'N_Iterations': 0,
-                'N_Equilibrium_Skipped': n_no_eq if status_file.exists() else np.nan,
+                'N_Iterations': 0
             })
             continue
 
@@ -88,43 +66,34 @@ def load_all_conditions():
             n_iterations = len(df)
             all_data.append(df)
 
-            print(f"{i:4d}. {condition_name}: ✓ {n_iterations} iterations{eq_note}")
+            print(f"{i:3d}. {condition_name}: ✓ {n_iterations} iterations")
             condition_summary.append({
                 'Condition': condition_name,
                 'Status': 'Success',
-                'N_Iterations': n_iterations,
-                'N_Equilibrium_Skipped': n_no_eq if status_file.exists() else np.nan,
+                'N_Iterations': n_iterations
             })
 
         except Exception as e:
-            print(f"{i:4d}. {condition_name}: ✗ Error - {e}{eq_note}")
+            print(f"{i:3d}. {condition_name}: ✗ Error - {e}")
             condition_summary.append({
                 'Condition': condition_name,
                 'Status': 'Error',
-                'N_Iterations': 0,
-                'N_Equilibrium_Skipped': n_no_eq if status_file.exists() else np.nan,
+                'N_Iterations': 0
             })
 
     # Save condition summary
     summary_df = pd.DataFrame(condition_summary)
     summary_file = OUTPUT_BASE / f"data_collection_summary_{CONDITION_TAG}.csv"
-    summary_file.parent.mkdir(parents=True, exist_ok=True)
     summary_df.to_csv(summary_file, index=False)
     print(f"\n✓ Saved collection summary to {summary_file}")
 
     # Statistics
     n_success = sum(1 for s in condition_summary if s['Status'] == 'Success')
     n_total_iterations = sum(s['N_Iterations'] for s in condition_summary)
-    n_eq_skipped_total = sum(
-        s['N_Equilibrium_Skipped'] for s in condition_summary
-        if not (isinstance(s['N_Equilibrium_Skipped'], float) and np.isnan(s['N_Equilibrium_Skipped']))
-    )
 
     print(f"\nSummary:")
-    print(f"  Conditions with data:          {n_success}/{len(condition_dirs)}")
-    print(f"  Total iterations included:     {n_total_iterations}")
-    print(f"  Total iterations skipped       ")
-    print(f"  (no equilibrium):              {int(n_eq_skipped_total)}")
+    print(f"  Conditions with data: {n_success}/{len(condition_dirs)}")
+    print(f"  Total iterations: {n_total_iterations}")
 
     if len(all_data) == 0:
         print("\n✗ No data to combine!")
@@ -155,18 +124,18 @@ def create_train_test_split(df, test_size=0.2, random_state=42):
 
     # Shuffle and split
     shuffled_conditions = np.random.permutation(conditions)
-    test_conditions  = shuffled_conditions[:n_test]
+    test_conditions = shuffled_conditions[:n_test]
     train_conditions = shuffled_conditions[n_test:]
 
     print(f"  Train conditions: {len(train_conditions)}")
-    print(f"  Test conditions:  {len(test_conditions)}")
+    print(f"  Test conditions: {len(test_conditions)}")
 
     # Create train/test datasets
     train_df = df[df['Condition'].isin(train_conditions)].copy()
     test_df  = df[df['Condition'].isin(test_conditions)].copy()
 
     print(f"  Train samples: {len(train_df)}")
-    print(f"  Test samples:  {len(test_df)}")
+    print(f"  Test samples: {len(test_df)}")
 
     return train_df, test_df
 
@@ -174,7 +143,6 @@ def create_train_test_split(df, test_size=0.2, random_state=42):
 def save_datasets(combined_df, train_df=None, test_df=None):
     """Save combined and split datasets to OUTPUT_BASE with condition tag."""
     print("\nSaving datasets...")
-    OUTPUT_BASE.mkdir(parents=True, exist_ok=True)
 
     # Save combined dataset
     combined_file = OUTPUT_BASE / f"nn_training_combined_{CONDITION_TAG}.csv"
