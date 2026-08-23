@@ -17,14 +17,14 @@ command-line arguments.
 Usage
 -----
     python predict_npe_pgs_and_pheno.py \
-        --model_dir results_npe_unweighted_04AMmigration \
+        --model_dir results_npe_unweighted_05AMmigration_noVT \
         --correlations_pgs observed_correlations_PGS.csv \
         --correlations_pheno observed_correlations_pheno.csv \
         --n_samples 1000
 
 Or directly:
     python predict_npe_pgs_and_pheno.py \\
-        --model_dir results_npe_unweighted_03EnvLatentAM \\
+        --model_dir results_npe_unweighted_04EnvLatentAM \\
         --pgs_S 0.523 --pgs_M 0.041 \\
         --pheno_S 0.312 --pheno_M 0.025
 """

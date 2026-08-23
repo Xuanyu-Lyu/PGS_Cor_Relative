@@ -9,12 +9,16 @@ This simulates one condition:
    - Trait 1: EA (Educational Attainment) — the assortative mating trait.
    - Trait 2: Migration — correlated with EA; all genetic effects are latent
      (prop_h2_latent2 = 1, so no observable PGS signal for migration).
-   - Genetic (rg) and environmental (re) correlations between traits.
+   - Only two free (sampled) parameters:
+       am11   — within-island spousal correlation on EA (trait 1).
+       move_p — proportion of each island's population that migrates per generation.
+   - Genetic variances fixed: vg1 (EA) = 0.6, vg2 (Migration) = 0.8.
+   - Genetic (rg = 0.2) and environmental (re = 0.2) correlations between
+     traits are fixed, not sampled.
    - No vertical transmission at all (f11 = f22 = f12 = f21 = 0).
    - No shared environmental effects (s_mat = 0 for all traits).
-   - Assortative mating on EA (trait 1) only within each island (am11 varies).
+   - Assortative mating on EA (trait 1) only within each island (am11 sampled).
    - 5 islands with migration sorted by trait 2 (migration trait).
-   - Migration proportion (move_p) varies as a sampled parameter.
    - 40 generations to allow equilibration.
 
 Usage:
@@ -63,20 +67,27 @@ MAF_MAX = 0.5
 # Parameter bounds for uniform sampling: [min, max]
 # Simplified version of condition 04: all vertical transmission (f) parameters
 # are fixed at 0 (see FIXED_PARAMS) instead of sampling f11.
+# Only am11 and move_p are sampled; vg1, vg2, rg, re are held fixed
+# (see FIXED_PARAMS) to isolate the effect of AM strength and migration rate.
 # Trait 1 = EA (mating trait), Trait 2 = Migration (latent genetic, no PGS)
 PARAM_BOUNDS = {
     #'vg1':             [0.4,  0.8],   # EA total genetic variance (fixed below)
-    'vg2':             [0.1,  0.7],   # Migration total genetic variance (restricted < 0.7)
-    're':              [0.0,  0.5],   # Environmental correlation between traits
+    #'vg2':             [0.1,  0.7],   # Migration total genetic variance (fixed below)
+    #'re':              [0.0,  0.5],   # Environmental correlation between traits (fixed below)
     'am11':            [0.25, 0.75],  # Within-island spousal correlation on EA (trait 1)
-    'rg':              [0.01, 0.60],  # Genetic correlation between EA and migration
+    #'rg':              [0.01, 0.60],  # Genetic correlation between EA and migration (fixed below)
     'move_p':          [0.01, 0.30],  # Proportion of each island's population that migrates per generation
 }
 
 # Fixed parameters (not sampled) -- matching the condition-04 test setup,
-# with all vertical transmission (f) parameters fixed at 0 for this condition
+# with all vertical transmission (f) parameters fixed at 0 for this condition.
+# vg1, re, rg, vg2 are also fixed here (no longer sampled; see PARAM_BOUNDS
+# above) so that am11 and move_p are the only free parameters.
 FIXED_PARAMS = {
-    'vg1': 0.45,              # EA total genetic variance (fixed for all conditions)
+    'vg1': 0.6,              # EA total genetic variance (fixed for all conditions)
+    're': 0.2,                # Environmental correlation between traits (fixed)
+    'rg': 0.2,                 # Genetic correlation between EA and migration (fixed)
+    'vg2': .8,                # Migration total genetic variance (fixed)
     'prop_h2_latent1': 0.6,   # EA: proportion of h2 that is latent (no PGS)
     'prop_h2_latent2': 1.0,   # Migration: all genetic effects are latent (no observable PGS)
     'f11': 0.0,               # No vertical transmission for EA
@@ -570,9 +581,12 @@ def main():
     print(f"Generations: {N_GENERATIONS} (analyzing final 3: {FINAL_GENS})")
     print(f"Iterations per condition: {ITERATIONS_PER_CONDITION}")
     print(f"Causal variants: {N_CV}")
-    print(f"Fixed: prop_h2_latent2=1, f11=f22=f12=f21=0, s=0, am12=am21=am22=0")
+    print(f"Fixed: vg1={FIXED_PARAMS['vg1']}, vg2={FIXED_PARAMS['vg2']}, "
+          f"rg={FIXED_PARAMS['rg']}, re={FIXED_PARAMS['re']}, prop_h2_latent2=1, "
+          f"f11=f22=f12=f21=0, s=0, am12=am21=am22=0")
     print(f"Islands: {N_ISLANDS} (migration sorted by trait 2, mating on trait 1 within islands)")
-    print(f"Sampled: move_p in {PARAM_BOUNDS['move_p']}")
+    sampled_str = ", ".join(f"{name} in {bounds}" for name, bounds in PARAM_BOUNDS.items())
+    print(f"Sampled (free parameters): {sampled_str}")
     print("="*70 + "\n")
 
     # Save/load conditions configuration
