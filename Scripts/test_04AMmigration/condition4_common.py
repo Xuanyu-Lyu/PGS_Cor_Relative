@@ -35,9 +35,9 @@ _SIMFUNC_DIR = Path(__file__).resolve().parent.parent / "SimulationFunctions"
 if str(_SIMFUNC_DIR) not in sys.path:
     sys.path.insert(0, str(_SIMFUNC_DIR))
 
-from IslandSimulation import IslandMigrationSimulation          # noqa: E402
-from find_relative_setbased import find_relationship_pairs      # noqa: E402
-from extract_measures import extract_individual_measures        # noqa: E402
+from island_migration import IslandMigrationSimulation          # noqa: E402
+from relationship_finder import find_relationship_pairs         # noqa: E402
+from postprocessing import extract_individual_measures          # noqa: E402
 
 
 # ============================================================================

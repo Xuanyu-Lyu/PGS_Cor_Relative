@@ -3,7 +3,7 @@
 DirectAM.py - Run multiple simulations to compute PGS and phenotypic correlations
 for various relative types under direct assortative mating.
 
-This version uses the set-based merge algorithm (find_relative_setbased.py) for
+This version uses the set-based merge algorithm (relationship_finder.py) for
 high-performance relationship finding, which is significantly faster than the
 graph-traversal approach.
 
@@ -26,10 +26,9 @@ from datetime import datetime
 # Add the parent directory to the path to import SimulationFunctions
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from SimulationFunctions.SimulationFunctions import AssortativeMatingSimulation
-from SimulationFunctions.save_simulation_data import save_simulation_results
-from SimulationFunctions.find_relative_setbased import extract_genealogy_info, find_relationship_pairs
-from SimulationFunctions.extract_measures import extract_individual_measures, extract_measures_for_pairs, compute_correlations_for_multiple_variables, save_measures_to_file
+from SimulationFunctions.core_simulation import AssortativeMatingSimulation
+from SimulationFunctions.relationship_finder import extract_genealogy_info, find_relationship_pairs
+from SimulationFunctions.postprocessing import save_simulation_results, extract_individual_measures, extract_measures_for_pairs, compute_correlations_for_multiple_variables, save_measures_to_file
 
 
 def compute_pgs_from_components(measures_df):

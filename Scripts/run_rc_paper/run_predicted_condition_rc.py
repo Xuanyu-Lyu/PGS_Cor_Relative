@@ -13,10 +13,9 @@ script_dir = Path(__file__).parent
 simfunc_dir = script_dir.parent / "SimulationFunctions"
 sys.path.insert(0, str(simfunc_dir))
 
-from SimulationFunctions import AssortativeMatingSimulation
-from save_simulation_data import save_simulation_results
-from find_relative_setbased import find_relationship_pairs
-from extract_measures import extract_individual_measures, compute_correlations_for_multiple_variables
+from core_simulation import AssortativeMatingSimulation
+from relationship_finder import find_relationship_pairs
+from postprocessing import save_simulation_results, extract_individual_measures, compute_correlations_for_multiple_variables
 
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)

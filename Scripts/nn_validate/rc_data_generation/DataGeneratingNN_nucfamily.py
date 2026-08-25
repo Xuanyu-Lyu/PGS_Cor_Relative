@@ -22,7 +22,7 @@ script_dir = Path(__file__).parent
 simfunc_dir = script_dir.parent.parent / "SimulationFunctions"
 sys.path.insert(0, str(simfunc_dir))
 
-from SimulationFunctions import AssortativeMatingSimulation
+from core_simulation import AssortativeMatingSimulation
 
 # ============================================================================
 # CONFIGURATION

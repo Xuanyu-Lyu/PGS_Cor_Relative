@@ -34,9 +34,9 @@ script_dir = Path(__file__).parent
 simfunc_dir = script_dir.parent / "SimulationFunctions"
 sys.path.insert(0, str(simfunc_dir))
 
-from IslandSimulation import IslandMigrationSimulation
-from find_relative_setbased import find_relationship_pairs
-from extract_measures import extract_individual_measures, compute_correlations_for_multiple_variables
+from island_migration import IslandMigrationSimulation
+from relationship_finder import find_relationship_pairs
+from postprocessing import extract_individual_measures, compute_correlations_for_multiple_variables
 
 # ============================================================================
 # CONFIGURATION

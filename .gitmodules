@@ -1,0 +1,4 @@
+[submodule "Scripts/SimulationFunctions"]
+	path = Scripts/SimulationFunctions
+	url = https://github.com/Xuanyu-Lyu/GeneEvolve-Python.git
+	branch = main
