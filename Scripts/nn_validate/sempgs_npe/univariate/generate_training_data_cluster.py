@@ -6,8 +6,8 @@ saving raw simulation data. The input is the set of data-generating parameters, 
 of variables used for univariate SEMPGS model. 
 
 Usage:
-    python DataGeneratingNN_Combined.py
-    (Run via SLURM array job - see submit_datagenerating_nn_combined.sh)
+    python generate_training_data_cluster.py
+    (Run via SLURM array job - see submit_cluster_job.sh)
 """
 
 import numpy as np
@@ -19,7 +19,7 @@ from pathlib import Path
 
 # Add the SimulationFunctions directory to path
 script_dir = Path(__file__).parent
-simfunc_dir = script_dir.parent.parent / "SimulationFunctions"
+simfunc_dir = script_dir.parent.parent.parent / "SimulationFunctions"
 sys.path.insert(0, str(simfunc_dir))
 
 from core_simulation import AssortativeMatingSimulation

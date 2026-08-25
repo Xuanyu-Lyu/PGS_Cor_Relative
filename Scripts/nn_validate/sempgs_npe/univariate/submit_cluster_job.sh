@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=150G
 #SBATCH --time=24:00:00
-#SBATCH --chdir /projects/xuly4739/Py_Projects/PGS_Cor_Relative/Scripts/nn_validate/rc_data_generation
+#SBATCH --chdir /projects/xuly4739/Py_Projects/PGS_Cor_Relative/Scripts/nn_validate/sempgs_npe/univariate
 #SBATCH --exclude bmem-rico1
 #SBATCH --output=slurm_logs/nn_combined_%A_%a.out
 #SBATCH --error=slurm_logs/nn_combined_%A_%a.err
@@ -37,7 +37,7 @@ export SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}
 
 # Run combined script
 echo "Starting combined simulation and analysis for condition $SLURM_ARRAY_TASK_ID..."
-python -u DataGeneratingNN_nucfamily.py
+python -u generate_training_data_cluster.py
 
 echo "Task $SLURM_ARRAY_TASK_ID completed."
 
@@ -47,6 +47,6 @@ if [ "$SLURM_ARRAY_TASK_ID" == "1000" ]; then
     echo "================================================"
     echo "This is the final task - combining all data..."
     echo "================================================"
-    python -u CombineNN_Data_Large.py --split --test_size 0.2
+    python -u combine_training_data.py --split --test_size 0.2
     echo "Data combination completed."
 fi

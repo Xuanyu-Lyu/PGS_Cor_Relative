@@ -12,8 +12,8 @@ Unlike the old point-prediction script, this version reports:
   - Bias and R² metrics
 
 Usage:
-    python predict_from_observed_ace.py
-    python predict_from_observed_ace.py --n_samples 500 --model_dir results_ace_npe_se_proxy --output 
+    python evaluate_oos_predictions.py
+    python evaluate_oos_predictions.py --n_samples 500 --model_dir results/se_proxy --output
 """
 
 import sys
@@ -32,8 +32,11 @@ from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 from scipy.stats import gaussian_kde
 
 # ACEEmbeddingNet must be importable so pickle can reconstruct the posterior
-from Scripts.nn_validate.simple_models.ACE_Scripts.train_ace_nn import ACEEmbeddingNet, ACE_PARAM_NAMES  # noqa: F401
-from Scripts.nn_validate.simple_models.ACE_Scripts.generate_ace_training_data import generate_training_data
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+
+from train_npe import ACEEmbeddingNet, ACE_PARAM_NAMES  # noqa: F401
+from generate_training_data import generate_training_data
 
 warnings.filterwarnings('ignore')
 
@@ -80,7 +83,7 @@ def load_trained_posterior(model_dir):
     posterior_path = model_dir / 'posterior.pkl'
     if not posterior_path.exists():
         print(f"\n✗ posterior.pkl not found in {model_dir}")
-        print("  Run train_ace_nn.py first to produce the posterior.")
+        print("  Run train_npe.py first to produce the posterior.")
         sys.exit(1)
 
     with open(posterior_path, 'rb') as f:
@@ -96,7 +99,7 @@ def load_trained_posterior(model_dir):
 # OUT-OF-SAMPLE VALIDATION
 # ============================================================================
 
-def run_oos_validation(n_samples=200, model_dir='results_ace_npe',
+def run_oos_validation(n_samples=200, model_dir='results/default',
                        n_posterior_samples=500, seed=999, output_dir=None):
     """
     Generate n_samples fresh ACE samples (distinct seed from training data),
@@ -402,8 +405,8 @@ if __name__ == "__main__":
     )
     parser.add_argument('--n_samples', type=int, default=200,
                         help='Number of out-of-sample observations (default: 200)')
-    parser.add_argument('--model_dir', type=str, default='results_ace_npe',
-                        help='Directory containing trained posterior (default: results_ace_npe)')
+    parser.add_argument('--model_dir', type=str, default='results/default',
+                        help='Directory containing trained posterior (default: results/default)')
     parser.add_argument('--n_posterior_samples', type=int, default=500,
                         help='Posterior draws per observation (default: 500)')
     parser.add_argument('--seed', type=int, default=999,

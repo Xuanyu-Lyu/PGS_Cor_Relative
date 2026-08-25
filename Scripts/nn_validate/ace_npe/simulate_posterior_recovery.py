@@ -1,25 +1,31 @@
 """
-NPE-based ACE Simulation Study
+NPE-based ACE Posterior Recovery Simulation Study
 
 For each condition in ace_test_conditions.csv and each sample size in
-(50, 100, 200, 500, 1000, 2000):
+(50, 100, 200, 500, 1000, 2000, 20000):
   1. Simulate N_MZ = N_DZ = N twin pairs from the true ACE covariance matrices.
   2. Compute sample covariance statistics (mz_var, mz_cov, dz_var, dz_cov).
-  3. Feed those + N_pairs into the trained NPE posterior.
-  4. Draw posterior samples and compute posterior mean (point estimate) and
-     posterior SD (SE analogue).
+  3. Feed those (+ an N_pairs-derived feature, if the loaded model expects one)
+     into the trained NPE posterior.
+  4. Draw posterior samples and compute the posterior mean, posterior SD (SE
+     analogue), and MAP estimate.
+
+Whether the model expects an N_pairs feature — and how it's encoded
+(raw N, log(N), or se_proxy = 1/sqrt(N)) — is auto-detected from the loaded
+model's config.json, so the same script evaluates models trained with or
+without that feature.
 
 Output:
-  npe_simulation_results.csv  — one row per condition × sample size, with
+  npe_simulation_results.csv — one row per condition x sample size, with
   columns mirroring ace_simulation_results.csv from OpenMx.
 
 Usage:
-    python npe_ace_simulation.py
-    python npe_ace_simulation.py --conditions ace_test_conditions.csv \
-                                  --model_dir results_ace_npe_se_proxy \
-                                  --n_posterior 1000 \
-                                  --seed 2025 \
-                                  --output npe_simulation_results.csv
+    python simulate_posterior_recovery.py
+    python simulate_posterior_recovery.py --conditions ace_test_conditions.csv \
+                                           --model_dir results/se_proxy \
+                                           --n_posterior 1000 \
+                                           --seed 2025 \
+                                           --output npe_simulation_results.csv
 """
 
 import argparse
@@ -43,8 +49,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 # ACEEmbeddingNet must be importable so pickle can reconstruct the posterior
-from train_ace_nn import ACEEmbeddingNet, ACE_PARAM_NAMES  # noqa: F401
-from ACEnn import simulate_covariances
+from train_npe import ACEEmbeddingNet, ACE_PARAM_NAMES, map_from_samples  # noqa: F401
+from ace_model import simulate_covariances
 
 
 # ============================================================================
@@ -52,7 +58,12 @@ from ACEnn import simulate_covariances
 # ============================================================================
 
 def load_posterior(model_dir: Path):
-    """Load the trained NPE posterior, feature scaler, and config."""
+    """Load the trained NPE posterior, feature scaler, and config.
+
+    Auto-detects from config.json whether the model was trained with an
+    N_pairs-derived feature, and how it was encoded (raw N, log(N), or
+    se_proxy = 1/sqrt(N)).
+    """
     config_path = model_dir / "config.json"
     if not config_path.exists():
         raise FileNotFoundError(f"config.json not found in {model_dir}")
@@ -60,19 +71,20 @@ def load_posterior(model_dir: Path):
     with open(config_path) as f:
         config = json.load(f)
 
-    feature_cols   = config.get("feature_cols",
-                                ["mz_var", "mz_cov", "dz_var", "dz_cov"])
-    param_names    = config.get("param_names", ACE_PARAM_NAMES)
+    feature_cols = config.get("feature_cols",
+                               ["mz_var", "mz_cov", "dz_var", "dz_cov"])
+    param_names  = config.get("param_names", ACE_PARAM_NAMES)
+
     # Detect how N_pairs was encoded during training
-    include_n_pairs  = any(c in feature_cols for c in ("N_pairs", "log_N_pairs", "se_proxy"))
-    use_se_proxy     = "se_proxy" in feature_cols
-    use_log_n_pairs  = (not use_se_proxy) and ("log_N_pairs" in feature_cols)
+    include_n_pairs = any(c in feature_cols for c in ("N_pairs", "log_N_pairs", "se_proxy"))
+    use_se_proxy    = "se_proxy" in feature_cols
+    use_log_n_pairs = (not use_se_proxy) and ("log_N_pairs" in feature_cols)
 
     posterior_path = model_dir / "posterior.pkl"
     if not posterior_path.exists():
         raise FileNotFoundError(
             f"posterior.pkl not found in {model_dir}. "
-            "Run train_ace_nn.py first."
+            "Run train_npe.py first."
         )
 
     with open(posterior_path, "rb") as f:
@@ -88,10 +100,10 @@ def load_posterior(model_dir: Path):
 
 
 def posterior_stats(posterior, x_scaled_1d: np.ndarray,
-                    n_samples: int) -> tuple[np.ndarray, np.ndarray]:
+                    n_samples: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Draw `n_samples` posterior samples for a single scaled observation and
-    return (mean, std) arrays of shape (3,).
+    return (mean, std, map) arrays of shape (3,).
 
     Parameters
     ----------
@@ -103,6 +115,7 @@ def posterior_stats(posterior, x_scaled_1d: np.ndarray,
     -------
     mean : np.ndarray, shape (3,)
     std  : np.ndarray, shape (3,)
+    map  : np.ndarray, shape (3,)
     """
     x_t = torch.FloatTensor(x_scaled_1d).unsqueeze(0)
     with torch.no_grad():
@@ -110,7 +123,7 @@ def posterior_stats(posterior, x_scaled_1d: np.ndarray,
             (n_samples,), x=x_t, show_progress_bars=False
         )
     s = samples.numpy()          # (n_samples, 3)
-    return s.mean(axis=0), s.std(axis=0)
+    return s.mean(axis=0), s.std(axis=0), map_from_samples(s)
 
 
 # ============================================================================
@@ -133,7 +146,7 @@ def run_simulation(conditions_csv: str,
         output_csv = SCRIPT_DIR / output_csv
 
     print("\n" + "=" * 70)
-    print("NPE ACE SIMULATION STUDY")
+    print("NPE ACE POSTERIOR RECOVERY SIMULATION")
     print("=" * 70)
     print(f"  Conditions file : {conditions_csv}")
     print(f"  Model dir       : {model_dir}")
@@ -196,10 +209,11 @@ def run_simulation(conditions_csv: str,
             x_scaled = scaler.transform(x_raw).flatten()
 
             # ---- Draw posterior samples ------------------------------------
-            p_mean, p_std = posterior_stats(posterior, x_scaled, n_posterior)
+            p_mean, p_std, p_map = posterior_stats(posterior, x_scaled, n_posterior)
 
             A_est, C_est, E_est = p_mean[0], p_mean[1], p_mean[2]
             A_se,  C_se,  E_se  = p_std[0],  p_std[1],  p_std[2]
+            A_map, C_map, E_map = p_map[0],  p_map[1],  p_map[2]
 
             rows.append({
                 "condition_id" : cid,
@@ -220,6 +234,10 @@ def run_simulation(conditions_csv: str,
                 "A_se"         : A_se,
                 "C_se"         : C_se,
                 "E_se"         : E_se,
+                # NPE MAP estimates
+                "A_map"        : A_map,
+                "C_map"        : C_map,
+                "E_map"        : E_map,
             })
 
             if counter % max(1, total_fits // 20) == 0 or counter == total_fits:
@@ -253,7 +271,7 @@ def run_simulation(conditions_csv: str,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="NPE ACE simulation study across sample sizes"
+        description="NPE ACE posterior recovery simulation across sample sizes"
     )
     parser.add_argument(
         "--conditions",
@@ -264,8 +282,8 @@ def main():
     parser.add_argument(
         "--model_dir",
         type=str,
-        default="results_ace_npe",
-        help="Directory containing trained NPE posterior (default: results_ace_npe)",
+        default="results/default",
+        help="Directory containing trained NPE posterior (default: results/default)",
     )
     parser.add_argument(
         "--sample_sizes",

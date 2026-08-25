@@ -22,17 +22,17 @@ Output targets  (3):  A (additive genetic), C (shared env), E (unique env)
 
 Usage:
     # 1. Generate training data first
-    python generate_ace_data.py --n_samples 20000
+    python generate_training_data.py --n_samples 20000
 
     # 2. Train
-    python train_ace_nn.py --data ace_training_data_N2000.csv --epochs 200 --device cpu --output results_ace_npe_no_n_wideprior
+    python train_npe.py --data ace_training_data_N2000.csv --epochs 200 --device cpu --output results/no_n_pairs_wideprior
 
     # 3. Optionally add N_pairs as a feature
-    python train_ace_nn.py --data ace_training_data.csv --include_n_pairs --epochs 500 --device cpu
+    python train_npe.py --data ace_training_data.csv --include_n_pairs --epochs 500 --device cpu
     # 4. train with gaussian prior instead of boxuniform
-    python train_ace_nn.py --data ace_training_data_N20000.csv --epochs 500 --device cpu --prior_type gaussian --output results_ace_npe_no_n_gaussianprior
+    python train_npe.py --data ace_training_data_N20000.csv --epochs 500 --device cpu --prior_type gaussian --output results/no_n_pairs_gaussian_prior
     #5. train with boxuniform prior with N_pairs feature
-    python train_ace_nn.py --data ace_training_data.csv --include_n_pairs --epochs 500 --device cpu --prior_type gaussian --output results_ace_npe_gaussian_prior
+    python train_npe.py --data ace_training_data.csv --include_n_pairs --epochs 500 --device cpu --prior_type gaussian --output results/gaussian_prior
 """
 
 import math
@@ -306,8 +306,8 @@ def main():
     )
     parser.add_argument('--data', type=str, default='ace_training_data.csv',
                         help='Path to training CSV (default: ace_training_data.csv)')
-    parser.add_argument('--output', type=str, default='results_ace_npe',
-                        help='Output directory (default: results_ace_npe)')
+    parser.add_argument('--output', type=str, default='results/default',
+                        help='Output directory (default: results/default)')
     parser.add_argument('--epochs', type=int, default=500,
                         help='Maximum training epochs (default: 500)')
     parser.add_argument('--stop_after_epochs', type=int, default=50,

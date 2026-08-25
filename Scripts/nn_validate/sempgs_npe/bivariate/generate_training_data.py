@@ -29,7 +29,7 @@ Targets saved (14 columns, prefixed with 'param_'):
   f11, f12, f21, f22
 
 Usage:
-    python generate_bisempgs_data.py --n_samples 20000 \
+    python generate_training_data.py --n_samples 20000 \
                                      --output bisempgs_training_data.csv
 """
 
@@ -39,9 +39,9 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-# Allow importing BiSEMPGSnn from the same directory
+# Allow importing bisempgs_model from the same directory
 sys.path.insert(0, str(Path(__file__).parent))
-from BiSEMPGSnn import (
+from bisempgs_model import (
     compute_cmatrix,
     simulate_sample_cov,
     unique_elements,

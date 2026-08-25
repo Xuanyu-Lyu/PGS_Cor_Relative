@@ -22,13 +22,13 @@ Targets saved:
 
 Usage:
     # Default: draw N randomly from [50, 100, 200, 500, 1000, 2000, 5000]
-    python generate_ace_training_data.py --n_samples 20000 --output ace_training_data.csv
+    python generate_training_data.py --n_samples 20000 --output ace_training_data.csv
 
     # Fixed N for all samples (useful for training a no-N model)
-    python generate_ace_training_data.py --n_pairs 2000 --n_samples 20000 --output ace_training_data_N2000.csv
+    python generate_training_data.py --n_pairs 2000 --n_samples 20000 --output ace_training_data_N2000.csv
 
     # Draw randomly from a custom vector
-    python generate_ace_training_data.py --n_pairs 200 500 1000 2000 --output ace_training_data.csv
+    python generate_training_data.py --n_pairs 200 500 1000 2000 --output ace_training_data.csv
 """
 
 import sys
@@ -37,9 +37,9 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-# Allow importing simulate_covariances from ACEnn in the same folder
+# Allow importing simulate_covariances from ace_model in the same folder
 sys.path.insert(0, str(Path(__file__).parent))
-from ACEnn import simulate_covariances
+from ace_model import simulate_covariances
 
 
 def generate_training_data(n_samples=20000, n_pairs_options=None, seed=42):

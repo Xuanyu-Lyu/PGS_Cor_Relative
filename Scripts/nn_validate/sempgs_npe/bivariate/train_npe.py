@@ -18,7 +18,7 @@ Architecture overview
    14 BiSEMPGS parameters.
 
 Input features  (46): 45 unique elements of the 14×14 sample covariance matrix
-                       (drawn from the 12 distinct 2×2 blocks; see BiSEMPGSnn.py)
+                       (drawn from the 12 distinct 2×2 blocks; see bisempgs_model.py)
                        + N_obs (controls estimation noise)
 Output targets  (14): vg1, vg2, rg, re,
                        prop_h2_latent1, prop_h2_latent2,
@@ -27,10 +27,10 @@ Output targets  (14): vg1, vg2, rg, re,
 
 Usage:
     # 1. Generate training data
-    python generate_bisempgs_data.py --n_samples 50000
+    python generate_training_data.py --n_samples 50000
 
     # 2. Train
-    python train_bisempgs_nn.py --data bisempgs_training_data.csv --epochs 500
+    python train_npe.py --data bisempgs_training_data.csv --epochs 500
 """
 
 import sys
@@ -55,9 +55,9 @@ from sbi.inference import SNPE
 from sbi.utils import BoxUniform
 from sbi.neural_nets import posterior_nn
 
-# Allow importing BiSEMPGSnn from the same directory
+# Allow importing bisempgs_model from the same directory
 sys.path.insert(0, str(Path(__file__).parent))
-from BiSEMPGSnn import unique_feature_names, N_UNIQUE_FEATURES
+from bisempgs_model import unique_feature_names, N_UNIQUE_FEATURES
 
 warnings.filterwarnings('ignore')
 torch.manual_seed(42)
