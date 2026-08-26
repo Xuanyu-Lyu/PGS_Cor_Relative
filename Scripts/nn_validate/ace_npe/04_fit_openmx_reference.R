@@ -1,5 +1,8 @@
 # ============================================================================
-# simulate_ACE_test.R
+# STEP 04 — 04_fit_openmx_reference.R
+#
+# Produces the classical-SEM reference that STEP 06 compares the NPE against,
+# and the shared test conditions that STEP 05 also fits.
 #
 # Purpose:
 #   1. Draw 100 random ACE conditions from a symmetric Dirichlet(1,1,1)
@@ -13,8 +16,9 @@
 #        d. Extract unstandardised (VA, VC, VE) and standardised (A, C, E)
 #           estimates together with their standard errors.
 #   4. Save two output files:
-#        - ace_test_conditions.csv       (100 rows: true ACE + covariances)
-#        - ace_simulation_results.csv    (1400 rows: one per condition × N)
+#        - data/ace_test_conditions.csv                  (true ACE + covariances)
+#        - results/simulations/ace_simulation_results.csv (one row per
+#                                                          condition × N)
 #
 # ACE model (biometric twin model):
 #   MZ: Var = A+C+E,  Cov = A+C       (100 % genetic sharing)
@@ -47,13 +51,19 @@ set.seed(2025)
 N_CONDITIONS    <- 200L
 SAMPLE_SIZES    <- c(50L, 100L, 200L, 500L, 1000L, 2000L, 20000L)  # N_MZ = N_DZ
 
-# Output directory: same folder as this script
+# Paths are resolved relative to this script's folder, mirroring the Python
+# side: inputs/test conditions live in data/, generated results in results/.
 SCRIPT_DIR       <- tryCatch(
   dirname(normalizePath(sys.frame(1)$ofile)),
   error = function(e) getwd()
 )
-CONDITIONS_FILE  <- file.path(SCRIPT_DIR, "ace_test_conditions.csv")
-RESULTS_FILE     <- file.path(SCRIPT_DIR, "ace_simulation_results.csv")
+DATA_DIR         <- file.path(SCRIPT_DIR, "data")
+SIM_DIR          <- file.path(SCRIPT_DIR, "results", "simulations")
+dir.create(DATA_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(SIM_DIR,  showWarnings = FALSE, recursive = TRUE)
+
+CONDITIONS_FILE  <- file.path(DATA_DIR, "ace_test_conditions.csv")
+RESULTS_FILE     <- file.path(SIM_DIR,  "ace_simulation_results.csv")
 
 
 # ============================================================================

@@ -1,7 +1,10 @@
 """
-NPE-based ACE Posterior Recovery Simulation Study
+STEP 05 — NPE-based ACE Posterior Recovery Simulation Study
 
-For each condition in ace_test_conditions.csv and each sample size in
+Fits the trained NPE to exactly the same test conditions that STEP 04 fitted
+with OpenMx, so STEP 06 can put the two estimators side by side.
+
+For each condition in data/ace_test_conditions.csv and each sample size in
 (50, 100, 200, 500, 1000, 2000, 20000):
   1. Simulate N_MZ = N_DZ = N twin pairs from the true ACE covariance matrices.
   2. Compute sample covariance statistics (mz_var, mz_cov, dz_var, dz_cov).
@@ -16,114 +19,46 @@ model's config.json, so the same script evaluates models trained with or
 without that feature.
 
 Output:
-  npe_simulation_results.csv — one row per condition x sample size, with
-  columns mirroring ace_simulation_results.csv from OpenMx.
+  results/simulations/npe_simulation_results.csv — one row per
+  condition x sample size, with columns mirroring ace_simulation_results.csv.
 
 Usage:
-    python simulate_posterior_recovery.py
-    python simulate_posterior_recovery.py --conditions ace_test_conditions.csv \
-                                           --model_dir results/se_proxy \
-                                           --n_posterior 1000 \
-                                           --seed 2025 \
-                                           --output npe_simulation_results.csv
+    # The "with N" model
+    python 05_simulate_posterior_recovery.py --model_dir se_proxy \
+                                             --output npe_simulation_results.csv
+
+    # The "no N" model (STEP 06 compares both)
+    python 05_simulate_posterior_recovery.py --model_dir no_n_pairs_gaussian_prior \
+                                             --output npe_simulation_results_no_n.csv
 """
 
 import argparse
-import json
-import pickle
 import sys
 import warnings
 from pathlib import Path
 
-import joblib
 import numpy as np
 import pandas as pd
-import torch
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ace_model import (
+    ACEEmbeddingNet,   # noqa: F401 — must be importable to unpickle some runs
+    DATA_DIR,
+    DEFAULT_MODEL_DIR,
+    MODELS_DIR,
+    SIM_DIR,
+    build_features,
+    describe_n_encoding,
+    load_posterior,
+    posterior_stats,
+    resolve,
+    simulate_covariances,
+    summarize_cov,
+)
 
 warnings.filterwarnings("ignore")
 
-# ---------------------------------------------------------------------------
-# Allow script to be run from any directory
-# ---------------------------------------------------------------------------
 SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(SCRIPT_DIR))
-
-# ACEEmbeddingNet must be importable so pickle can reconstruct the posterior
-from train_npe import ACEEmbeddingNet, ACE_PARAM_NAMES, map_from_samples  # noqa: F401
-from ace_model import simulate_covariances
-
-
-# ============================================================================
-# Helpers
-# ============================================================================
-
-def load_posterior(model_dir: Path):
-    """Load the trained NPE posterior, feature scaler, and config.
-
-    Auto-detects from config.json whether the model was trained with an
-    N_pairs-derived feature, and how it was encoded (raw N, log(N), or
-    se_proxy = 1/sqrt(N)).
-    """
-    config_path = model_dir / "config.json"
-    if not config_path.exists():
-        raise FileNotFoundError(f"config.json not found in {model_dir}")
-
-    with open(config_path) as f:
-        config = json.load(f)
-
-    feature_cols = config.get("feature_cols",
-                               ["mz_var", "mz_cov", "dz_var", "dz_cov"])
-    param_names  = config.get("param_names", ACE_PARAM_NAMES)
-
-    # Detect how N_pairs was encoded during training
-    include_n_pairs = any(c in feature_cols for c in ("N_pairs", "log_N_pairs", "se_proxy"))
-    use_se_proxy    = "se_proxy" in feature_cols
-    use_log_n_pairs = (not use_se_proxy) and ("log_N_pairs" in feature_cols)
-
-    posterior_path = model_dir / "posterior.pkl"
-    if not posterior_path.exists():
-        raise FileNotFoundError(
-            f"posterior.pkl not found in {model_dir}. "
-            "Run train_npe.py first."
-        )
-
-    with open(posterior_path, "rb") as f:
-        posterior = pickle.load(f)
-
-    scaler = joblib.load(model_dir / "feature_scaler.pkl")
-
-    # Put the neural net into eval mode if accessible
-    if hasattr(posterior, "_neural_net"):
-        posterior._neural_net.eval()
-
-    return posterior, scaler, feature_cols, param_names, include_n_pairs, use_log_n_pairs, use_se_proxy
-
-
-def posterior_stats(posterior, x_scaled_1d: np.ndarray,
-                    n_samples: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Draw `n_samples` posterior samples for a single scaled observation and
-    return (mean, std, map) arrays of shape (3,).
-
-    Parameters
-    ----------
-    posterior     : trained sbi posterior object
-    x_scaled_1d   : 1-D numpy array of scaled features for one observation
-    n_samples     : number of posterior draws
-
-    Returns
-    -------
-    mean : np.ndarray, shape (3,)
-    std  : np.ndarray, shape (3,)
-    map  : np.ndarray, shape (3,)
-    """
-    x_t = torch.FloatTensor(x_scaled_1d).unsqueeze(0)
-    with torch.no_grad():
-        samples = posterior.sample(
-            (n_samples,), x=x_t, show_progress_bars=False
-        )
-    s = samples.numpy()          # (n_samples, 3)
-    return s.mean(axis=0), s.std(axis=0), map_from_samples(s)
 
 
 # ============================================================================
@@ -137,16 +72,13 @@ def run_simulation(conditions_csv: str,
                    seed: int,
                    output_csv: str) -> pd.DataFrame:
 
-    conditions_csv = Path(conditions_csv)
-    model_dir      = Path(model_dir)
-    if not model_dir.is_absolute():
-        model_dir = SCRIPT_DIR / model_dir
-    output_csv = Path(output_csv)
-    if not output_csv.is_absolute():
-        output_csv = SCRIPT_DIR / output_csv
+    conditions_csv = resolve(conditions_csv, DATA_DIR)
+    model_dir      = resolve(model_dir, MODELS_DIR)
+    output_csv     = resolve(output_csv, SIM_DIR)
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
 
     print("\n" + "=" * 70)
-    print("NPE ACE POSTERIOR RECOVERY SIMULATION")
+    print("STEP 05 — NPE ACE POSTERIOR RECOVERY SIMULATION")
     print("=" * 70)
     print(f"  Conditions file : {conditions_csv}")
     print(f"  Model dir       : {model_dir}")
@@ -156,11 +88,14 @@ def run_simulation(conditions_csv: str,
     print(f"  Output file     : {output_csv}\n")
 
     # ---- Load model --------------------------------------------------------
-    posterior, scaler, feature_cols, param_names, include_n_pairs, use_log_n_pairs, use_se_proxy = \
-        load_posterior(model_dir)
+    loaded       = load_posterior(model_dir)
+    posterior    = loaded['posterior']
+    scaler       = loaded['scaler']
+    feature_cols = loaded['feature_cols']
+    param_names  = loaded['param_names']
     print(f"Loaded posterior  — features   : {feature_cols}")
     print(f"                  — params     : {param_names}")
-    print(f"                  — N encoding : {'se_proxy (1/√N)' if use_se_proxy else 'log(N)' if use_log_n_pairs else 'raw N' if include_n_pairs else 'none'}\n")
+    print(f"                  — N encoding : {describe_n_encoding(feature_cols)}\n")
 
     # ---- Load conditions ---------------------------------------------------
     cond_df = pd.read_csv(conditions_csv)
@@ -189,23 +124,15 @@ def run_simulation(conditions_csv: str,
             counter += 1
 
             # ---- Simulate twin pairs and get sample covariances ------------
-            obs_mz_cov, obs_dz_cov = simulate_covariances(A_t, C_t, E_t,
-                                                           N_pairs=N)
-            mz_var = float(obs_mz_cov[0, 0])
-            mz_cov = float(obs_mz_cov[0, 1])
-            dz_var = float(obs_dz_cov[0, 0])
-            dz_cov = float(obs_dz_cov[0, 1])
+            # summarize_cov applies the sufficient reduction (mean of the two
+            # diagonal entries), matching how training data is generated.
+            S_mz, S_dz = simulate_covariances(A_t, C_t, E_t, N_pairs=N)
+            mz_var, mz_cov = summarize_cov(S_mz)
+            dz_var, dz_cov = summarize_cov(S_dz)
 
             # ---- Build feature vector (matching training feature order) -----
-            base_feats = [mz_var, mz_cov, dz_var, dz_cov]
-            if include_n_pairs:
-                if use_se_proxy:
-                    base_feats.append(1.0 / np.sqrt(float(N)))
-                elif use_log_n_pairs:
-                    base_feats.append(np.log(float(N)))
-                else:
-                    base_feats.append(float(N))
-            x_raw    = np.array(base_feats, dtype=np.float32).reshape(1, -1)
+            x_raw    = build_features(mz_var, mz_cov, dz_var, dz_cov,
+                                      N, feature_cols)
             x_scaled = scaler.transform(x_raw).flatten()
 
             # ---- Draw posterior samples ------------------------------------
@@ -276,14 +203,16 @@ def main():
     parser.add_argument(
         "--conditions",
         type=str,
-        default=str(SCRIPT_DIR / "ace_test_conditions.csv"),
-        help="Path to conditions CSV (default: ace_test_conditions.csv)",
+        default="ace_test_conditions.csv",
+        help="Conditions CSV, relative to data/ (default: ace_test_conditions.csv). "
+             "Produced by 04_fit_openmx_reference.R.",
     )
     parser.add_argument(
         "--model_dir",
         type=str,
-        default="results/default",
-        help="Directory containing trained NPE posterior (default: results/default)",
+        default=str(DEFAULT_MODEL_DIR),
+        help="Trained run directory, relative to results/models/ "
+             f"(default: {DEFAULT_MODEL_DIR.name})",
     )
     parser.add_argument(
         "--sample_sizes",
@@ -307,8 +236,9 @@ def main():
     parser.add_argument(
         "--output",
         type=str,
-        default=str(SCRIPT_DIR / "npe_simulation_results.csv"),
-        help="Output CSV path (default: npe_simulation_results.csv)",
+        default="npe_simulation_results.csv",
+        help="Output CSV, relative to results/simulations/ "
+             "(default: npe_simulation_results.csv)",
     )
     args = parser.parse_args()
 

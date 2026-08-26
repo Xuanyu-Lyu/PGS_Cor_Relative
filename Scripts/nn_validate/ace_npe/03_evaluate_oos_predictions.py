@@ -1,25 +1,27 @@
 """
-Out-of-Sample Validation for the ACE NPE Model
+STEP 03 — Out-of-Sample Validation for the ACE NPE Model
 
 Generates N fresh samples (default 200) that were NOT part of the training data,
 draws posterior samples for each observation using the trained NPE posterior,
 and evaluates bias by comparing posterior means vs true A, C, E values.
 
-Unlike the old point-prediction script, this version reports:
+This is the standalone calibration check on a single trained run.  It reports
+what STEP 02's held-out evaluation does not:
   - Posterior mean  (point estimate)
   - Posterior std   (uncertainty per observation)
   - 95% credible interval coverage
+  - MAP estimates alongside posterior means
   - Bias and R² metrics
 
+Outputs land in results/oos/<run-name>/ by default.
+
 Usage:
-    python evaluate_oos_predictions.py
-    python evaluate_oos_predictions.py --n_samples 500 --model_dir results/se_proxy --output
+    python 03_evaluate_oos_predictions.py
+    python 03_evaluate_oos_predictions.py --n_samples 500 --model_dir se_proxy
 """
 
 import sys
 import math
-import json
-import pickle
 import argparse
 import warnings
 import numpy as np
@@ -27,79 +29,28 @@ import pandas as pd
 import torch
 import matplotlib.pyplot as plt
 from pathlib import Path
-import joblib
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
-from scipy.stats import gaussian_kde
 
-# ACEEmbeddingNet must be importable so pickle can reconstruct the posterior
-SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(SCRIPT_DIR))
-
-from train_npe import ACEEmbeddingNet, ACE_PARAM_NAMES  # noqa: F401
-from generate_training_data import generate_training_data
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ace_model import (
+    ACEEmbeddingNet,   # noqa: F401 — must be importable to unpickle some runs
+    DEFAULT_MODEL_DIR,
+    MODELS_DIR,
+    RESULTS_DIR,
+    generate_training_data,
+    load_posterior,
+    map_from_samples,
+    resolve,
+)
 
 warnings.filterwarnings('ignore')
-
-
-# ============================================================================
-# HELPERS
-# ============================================================================
-
-def map_from_samples(samples: np.ndarray) -> np.ndarray:
-    """
-    Approximate the MAP (mode) for each parameter independently using a 1-D
-    kernel density estimate on the posterior samples.
-
-    Args:
-        samples: (n_samples, n_params) array of posterior draws
-    Returns:
-        map_est: (n_params,) array of MAP estimates
-    """
-    map_est = np.empty(samples.shape[1])
-    for i in range(samples.shape[1]):
-        kde = gaussian_kde(samples[:, i])
-        xs  = np.linspace(samples[:, i].min(), samples[:, i].max(), 1000)
-        map_est[i] = xs[np.argmax(kde(xs))]
-    return map_est
-
-
-# ============================================================================
-# MODEL LOADING
-# ============================================================================
-
-def load_trained_posterior(model_dir):
-    """Load the trained NPE posterior and feature scaler."""
-    model_dir = Path(model_dir)
-    print(f"\nLoading NPE posterior from: {model_dir}")
-
-    with open(model_dir / 'config.json', 'r') as f:
-        config = json.load(f)
-
-    param_names    = config.get('param_names', ACE_PARAM_NAMES)
-    feature_cols   = config.get('feature_cols', ['mz_var', 'mz_cov', 'dz_var', 'dz_cov'])
-    feature_scaler = joblib.load(model_dir / 'feature_scaler.pkl')
-    print(f"✓ Loaded feature scaler")
-
-    posterior_path = model_dir / 'posterior.pkl'
-    if not posterior_path.exists():
-        print(f"\n✗ posterior.pkl not found in {model_dir}")
-        print("  Run train_npe.py first to produce the posterior.")
-        sys.exit(1)
-
-    with open(posterior_path, 'rb') as f:
-        posterior = pickle.load(f)
-    print(f"✓ Loaded posterior object")
-    print(f"✓ Input features: {feature_cols}")
-    print(f"✓ Predicting {len(param_names)} parameters: {param_names}")
-
-    return posterior, feature_scaler, config, param_names, feature_cols
 
 
 # ============================================================================
 # OUT-OF-SAMPLE VALIDATION
 # ============================================================================
 
-def run_oos_validation(n_samples=200, model_dir='results/default',
+def run_oos_validation(n_samples=200, model_dir=DEFAULT_MODEL_DIR,
                        n_posterior_samples=500, seed=999, output_dir=None):
     """
     Generate n_samples fresh ACE samples (distinct seed from training data),
@@ -107,34 +58,36 @@ def run_oos_validation(n_samples=200, model_dir='results/default',
 
     Args:
         n_samples:           Number of out-of-sample observations to evaluate
-        model_dir:           Path to trained model directory
+        model_dir:           Trained run directory (relative to results/models/)
         n_posterior_samples: Posterior draws per observation
         seed:                Random seed (different from training seed=42)
-        output_dir:          Where to save results; defaults to model_dir
+        output_dir:          Where to save results; defaults to
+                             results/oos/<run-name>/
     """
-    script_dir = Path(__file__).parent
-    model_dir  = Path(model_dir)
-    if not model_dir.is_absolute():
-        model_dir = script_dir / model_dir
+    model_dir = resolve(model_dir, MODELS_DIR)
     if output_dir is None:
-        output_dir = model_dir
+        output_dir = RESULTS_DIR / 'oos' / model_dir.name
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("\n" + "="*70)
-    print("OUT-OF-SAMPLE VALIDATION — ACE NPE MODEL")
+    print("STEP 03 — OUT-OF-SAMPLE VALIDATION, ACE NPE MODEL")
     print("="*70)
     print(f"  Samples:            {n_samples}")
     print(f"  Posterior draws:    {n_posterior_samples}")
     print(f"  Seed:               {seed}  (different from training seed)")
     print(f"  Model dir:          {model_dir}")
+    print(f"  Output dir:         {output_dir}")
 
     # ---- Load posterior ----
-    posterior, feature_scaler, config, param_names, feature_cols = \
-        load_trained_posterior(model_dir)
-
-    if hasattr(posterior, '_neural_net'):
-        posterior._neural_net.eval()
+    loaded         = load_posterior(model_dir)
+    posterior      = loaded['posterior']
+    feature_scaler = loaded['scaler']
+    config         = loaded['config']
+    param_names    = loaded['param_names']
+    feature_cols   = loaded['feature_cols']
+    print(f"\n✓ Loaded posterior — features: {feature_cols}")
+    print(f"✓ Predicting {len(param_names)} parameters: {param_names}")
 
     # ---- Extract prior bounds for reference lines on plots ----
     prior_lower = np.array(config['prior_lower']) if 'prior_lower' in config else None
@@ -405,12 +358,15 @@ if __name__ == "__main__":
     )
     parser.add_argument('--n_samples', type=int, default=200,
                         help='Number of out-of-sample observations (default: 200)')
-    parser.add_argument('--model_dir', type=str, default='results/default',
-                        help='Directory containing trained posterior (default: results/default)')
+    parser.add_argument('--model_dir', type=str, default=str(DEFAULT_MODEL_DIR),
+                        help='Trained run directory, relative to results/models/ '
+                             f'(default: {DEFAULT_MODEL_DIR.name})')
     parser.add_argument('--n_posterior_samples', type=int, default=500,
                         help='Posterior draws per observation (default: 500)')
     parser.add_argument('--seed', type=int, default=999,
                         help='Random seed for OOS data generation (default: 999)')
+    parser.add_argument('--output_dir', type=str, default=None,
+                        help='Where to write results (default: results/oos/<run-name>/)')
     args = parser.parse_args()
 
     run_oos_validation(
@@ -418,4 +374,5 @@ if __name__ == "__main__":
         model_dir=args.model_dir,
         n_posterior_samples=args.n_posterior_samples,
         seed=args.seed,
+        output_dir=args.output_dir,
     )

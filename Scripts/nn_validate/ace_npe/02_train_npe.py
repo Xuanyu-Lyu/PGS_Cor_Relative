@@ -1,40 +1,44 @@
 """
-Neural Posterior Estimation (NPE) for ACE Parameter Prediction
+STEP 02 — Neural Posterior Estimation (NPE) for ACE Parameter Estimation
 
-Uses sbi (SNPE-C / APT) to learn the full posterior over A, C, E variance
+Uses sbi (SNPE-C / APT) to learn the full posterior over the A, C, E variance
 components given MZ and DZ twin covariance matrix elements.
 
 Architecture overview
 ---------------------
-1. **Embedding network** (``ACEEmbeddingNet``):
-   A small LayerNorm MLP that compresses the 4 (or 5) input features into a
-   dense summary vector.  LayerNorm is used instead of BatchNorm1d so that
-   the network works correctly when called with batch_size=1 during posterior
-   sampling.
+1. **Conditioning input**: the 4 (or 5) summary statistics, standardized by a
+   ``StandardScaler`` fitted on the training split.  These are fed to the flow
+   DIRECTLY via ``nn.Identity()`` — no embedding network is used.  See the
+   "Why no embedding network?" section of README.md for the reasoning;
+   ``ace_model.ACEEmbeddingNet`` remains available as a drop-in replacement.
 
 2. **Normalizing Flow** (Neural Spline Flow, via ``sbi``):
-   Conditions on the embedding vector and outputs the full posterior over the
-   3 ACE parameters.
+   Conditions on that vector and outputs the full posterior over the 3 ACE
+   parameters.
 
 Input features  (4):  mz_var, mz_cov, dz_var, dz_cov
-                      Optionally include N_pairs with --include_n_pairs
+                      Optionally add an N_pairs encoding with --include_n_pairs
 Output targets  (3):  A (additive genetic), C (shared env), E (unique env)
 
 Usage:
     # 1. Generate training data first
-    python generate_training_data.py --n_samples 20000
+    python 01_generate_training_data.py --n_samples 20000
 
-    # 2. Train
-    python train_npe.py --data ace_training_data_N2000.csv --epochs 200 --device cpu --output results/no_n_pairs_wideprior
+    # 2. Train (paths are relative to data/ and results/models/)
+    python 02_train_npe.py --data ace_training_data_N2000.csv --epochs 200 \
+                           --device cpu --output no_n_pairs_wideprior
 
-    # 3. Optionally add N_pairs as a feature
-    python train_npe.py --data ace_training_data.csv --include_n_pairs --epochs 500 --device cpu
-    # 4. train with gaussian prior instead of boxuniform
-    python train_npe.py --data ace_training_data_N20000.csv --epochs 500 --device cpu --prior_type gaussian --output results/no_n_pairs_gaussian_prior
-    #5. train with boxuniform prior with N_pairs feature
-    python train_npe.py --data ace_training_data.csv --include_n_pairs --epochs 500 --device cpu --prior_type gaussian --output results/gaussian_prior
+    # 3. Optionally add an N_pairs-derived feature
+    python 02_train_npe.py --data ace_training_data.csv --include_n_pairs \
+                           --epochs 500 --device cpu --output se_proxy
+
+    # 4. Train with a gaussian prior instead of boxuniform
+    python 02_train_npe.py --data ace_training_data_N20000.csv --epochs 500 \
+                           --device cpu --prior_type gaussian \
+                           --output no_n_pairs_gaussian_prior
 """
 
+import sys
 import math
 import json
 import pickle
@@ -55,30 +59,22 @@ from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 from sbi.inference import SNPE
 from sbi.utils import BoxUniform
 from sbi.neural_nets import posterior_nn
-from scipy.stats import gaussian_kde
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ace_model import (
+    ACE_PARAM_NAMES,
+    COV_FEATURE_NAMES,
+    ACEEmbeddingNet,  # noqa: F401 — used by the commented-out embedding path below
+    DATA_DIR,
+    MODELS_DIR,
+    VAR_REDUCTION,
+    map_from_samples,
+    resolve,
+)
 
 warnings.filterwarnings('ignore')
 torch.manual_seed(42)
 np.random.seed(42)
-
-# ============================================================================
-# CONFIGURATION
-# ============================================================================
-
-ACE_PARAM_NAMES = ['A', 'C', 'E']
-
-
-def map_from_samples(samples: np.ndarray) -> np.ndarray:
-    """
-    Approximate the MAP (mode) for each parameter independently using a 1-D
-    kernel density estimate on the posterior samples.
-    """
-    map_est = np.empty(samples.shape[1])
-    for i in range(samples.shape[1]):
-        kde = gaussian_kde(samples[:, i])
-        xs  = np.linspace(samples[:, i].min(), samples[:, i].max(), 1000)
-        map_est[i] = xs[np.argmax(kde(xs))]
-    return map_est
 
 
 # ============================================================================
@@ -95,7 +91,7 @@ def load_and_clean_data(data_path):
     print(f"✓ Loaded {len(df)} samples with {len(df.columns)} columns")
 
     initial_samples = len(df)
-    feature_cols  = ['mz_var', 'mz_cov', 'dz_var', 'dz_cov']
+    feature_cols  = list(COV_FEATURE_NAMES)
     required_cols = feature_cols + ACE_PARAM_NAMES
 
     missing_required = [c for c in required_cols if c not in df.columns]
@@ -115,42 +111,6 @@ def load_and_clean_data(data_path):
     print(f"\nFinal sample size: {len(df)}")
     print("="*70)
     return df
-
-
-# ============================================================================
-# EMBEDDING NETWORK
-# ============================================================================
-
-class ACEEmbeddingNet(nn.Module):
-    """
-    Lightweight embedding network for NPE on the ACE model.
-
-    Uses LayerNorm instead of BatchNorm1d so that it works correctly
-    when called with a single sample during posterior.sample().
-    The ``output_dim`` attribute is required by sbi.
-    """
-
-    def __init__(self, n_features=4, hidden_sizes=None, dropout_rate=0.2):
-        super().__init__()
-        if hidden_sizes is None:
-            hidden_sizes = [64, 64, 32]
-
-        layers = []
-        in_size = n_features
-        for h in hidden_sizes:
-            layers += [
-                nn.Linear(in_size, h),
-                nn.LayerNorm(h),
-                nn.ReLU(),
-                nn.Dropout(dropout_rate),
-            ]
-            in_size = h
-
-        self.network = nn.Sequential(*layers)
-        self.output_dim = in_size   # required by sbi
-
-    def forward(self, x):
-        return self.network(x)
 
 
 # ============================================================================
@@ -305,9 +265,11 @@ def main():
         description='Train NPE (sbi SNPE-C) for ACE parameter estimation'
     )
     parser.add_argument('--data', type=str, default='ace_training_data.csv',
-                        help='Path to training CSV (default: ace_training_data.csv)')
-    parser.add_argument('--output', type=str, default='results/default',
-                        help='Output directory (default: results/default)')
+                        help='Training CSV, relative to data/ '
+                             '(default: ace_training_data.csv)')
+    parser.add_argument('--output', type=str, default='default',
+                        help='Run directory, relative to results/models/ '
+                             '(default: default)')
     parser.add_argument('--epochs', type=int, default=500,
                         help='Maximum training epochs (default: 500)')
     parser.add_argument('--stop_after_epochs', type=int, default=50,
@@ -344,17 +306,12 @@ def main():
                         help='Device: auto, cpu, cuda, mps (default: auto)')
     args = parser.parse_args()
 
-    script_dir = Path(__file__).parent
-    data_path  = Path(args.data)
-    if not data_path.is_absolute():
-        data_path = script_dir / data_path
-    output_dir = Path(args.output)
-    if not output_dir.is_absolute():
-        output_dir = script_dir / output_dir
+    data_path  = resolve(args.data, DATA_DIR)
+    output_dir = resolve(args.output, MODELS_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("\n" + "="*70)
-    print("ACE NEURAL POSTERIOR ESTIMATION (SNPE-C)")
+    print("STEP 02 — ACE NEURAL POSTERIOR ESTIMATION (SNPE-C)")
     print("="*70)
     print(f"Output: {output_dir}")
     print("="*70)
@@ -374,7 +331,7 @@ def main():
     # ---- Load data ----
     df = load_and_clean_data(data_path)
 
-    feature_cols = ['mz_var', 'mz_cov', 'dz_var', 'dz_cov']
+    feature_cols = list(COV_FEATURE_NAMES)
     if args.include_n_pairs:
         if 'se_proxy' in df.columns:
             feature_cols.append('se_proxy')
@@ -441,28 +398,33 @@ def main():
             torch.distributions.Normal(prior_mean.to(device), prior_std.to(device)), 1
         )
 
-    # ---- Build embedding network and density estimator ----
+    # ---- Build density estimator ----
     print("\n" + "="*70)
     print("MODEL ARCHITECTURE")
     print("="*70)
 
-    n_features    = X_train.shape[1]
-    embedding_net = ACEEmbeddingNet(
-        n_features=n_features,
-        hidden_sizes=args.hidden_sizes,
-        dropout_rate=args.dropout,
-    )
+    n_features = X_train.shape[1]
 
-    print(f"\nEmbedding network:")
-    print(f"  Input features : {n_features}")
-    print(f"  Hidden layers  : {args.hidden_sizes}")
-    print(f"  Output dim     : {embedding_net.output_dim}  (→ Normalizing Flow condition)")
-    print(f"  Parameters     : {sum(p.numel() for p in embedding_net.parameters()):,}")
+    # NOTE: the flow conditions on the standardized summary statistics
+    # DIRECTLY (nn.Identity), not on a learned embedding.  With only 4-5
+    # near-sufficient statistics there is nothing to compress, and an
+    # unnecessary bottleneck can only discard information.  See README.md,
+    # "Why no embedding network?".  To re-enable the embedding net, swap the
+    # two lines below — note this invalidates every previously trained run.
+    #
+    #   embedding_net = ACEEmbeddingNet(n_features=n_features,
+    #                                   hidden_sizes=args.hidden_sizes,
+    #                                   dropout_rate=args.dropout)
+    embedding_net = nn.Identity()
+
+    print(f"\nConditioning input (no embedding network):")
+    print(f"  Input features : {n_features}  → fed directly to the flow")
+    print(f"  Standardizer   : StandardScaler (fit on the training split)")
+    print(f"  Embedding      : nn.Identity()   [ACEEmbeddingNet available but bypassed]")
 
     density_estimator_fn = posterior_nn(
         model=args.flow_type,
-        #embedding_net=embedding_net,
-        embedding_net=nn.Identity(),
+        embedding_net=embedding_net,
         hidden_features=args.flow_hidden,
         num_transforms=args.flow_transforms,
         z_score_theta='independent',
@@ -540,6 +502,12 @@ def main():
         'flow_transforms': args.flow_transforms,
         'n_features': n_features,
         'feature_cols': feature_cols,
+        # How *_var was reduced from the 2x2 sample covariance matrix.
+        # Downstream scripts refuse to trust a run whose value differs.
+        'var_feature': VAR_REDUCTION,
+        # NOTE: hidden_sizes/dropout_rate configure ACEEmbeddingNet, which is
+        # currently bypassed (see MODEL ARCHITECTURE above). Recorded for
+        # provenance only — they do not affect the trained model.
         'hidden_sizes': args.hidden_sizes,
         'dropout_rate': args.dropout,
         'param_names': ACE_PARAM_NAMES,
