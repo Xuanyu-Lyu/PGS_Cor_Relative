@@ -63,7 +63,7 @@ CONDITION = {
 }
 
 # Simulation parameters
-TOTAL_ITERATIONS = 100   # Total iterations across all array tasks
+TOTAL_ITERATIONS = 50    # Total iterations across all array tasks
 POP_SIZE    = 40000
 N_ISLANDS   = 5
 N_GENERATIONS = 40       # 40 generations to reach equilibrium
