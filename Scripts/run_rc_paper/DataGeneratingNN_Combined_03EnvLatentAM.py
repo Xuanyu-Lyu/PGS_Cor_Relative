@@ -6,10 +6,12 @@ saving raw simulation data. This increases efficiency and saves storage space.
 
 This simulates one condition:
 1) AE model with within-trait vertical transmission (f11, f22) for both traits,
-   genetic (rg) and environmental (re) correlations between traits, and
-   single-trait phenotypic mating on latent trait 2 (AM on latent factor 2).
-   Cross-trait vertical transmission (f12, f21) and shared environment (s) are
-   disabled (fixed to 0).
+   genetic (rg) correlation between traits, and single-trait phenotypic mating
+   on latent trait 2 (AM on latent factor 2).
+   Cross-trait vertical transmission (f12, f21) is disabled (fixed to 0).
+   Shared environment (s11, s12, s21, s22) is fixed at 0.5.
+   Environmental correlation (re) is fixed at 0.1 and trait 2 genetic variance
+   (vg2) is fixed at 0.5; trait 2 remains fully latent (prop_h2_latent2=1.0).
 
 Usage:
     python DataGeneratingNN_Combined_03EnvLatentAM.py
@@ -47,8 +49,8 @@ ITERATIONS_PER_CONDITION = 1   # Each condition is unique; one simulation per co
 CONDITIONS_PER_JOB = 40        # Conditions (simulations) processed per SLURM job
 N_CONDITIONS_TOTAL = 20000     # Total unique conditions (500 jobs × 40 conditions)
 POP_SIZE = 40000
-N_GENERATIONS = 15
-FINAL_GENS = [12, 13, 14]  # Final 3 generations to analyze
+N_GENERATIONS = 20
+FINAL_GENS = [17, 18, 19]  # Final 3 generations to analyze
 N_CV = 1000
 MAF_MIN = 0.01
 MAF_MAX = 0.5
@@ -58,7 +60,7 @@ PARAM_BOUNDS = {
     #'prop_h2_latent1': [0.5,  0.9],
     #'prop_h2_latent2': [0.5,  0.9],
     'vg1':             [0.4,  0.8],
-    'vg2':             [0.4,  0.8],
+    #'vg2':             [0.4,  0.8],  # fixed below
     'f11':             [0.05, 0.30],
     'f22':             [0.05, 0.30],
     #'f12':             [0.02, 0.25],
@@ -67,7 +69,7 @@ PARAM_BOUNDS = {
     #'s22':             [0.0,  0.4],
     #'s12':             [0.0,  0.4],
     #'s21':             [0.0,  0.4],
-    're':              [0.0,  0.4],
+    #'re':              [0.0,  0.4],  # fixed below
     'am22':            [0.25, 0.75],
     'rg':              [0.30, 0.90],
 }
@@ -76,15 +78,17 @@ PARAM_BOUNDS = {
 FIXED_PARAMS = {
     'prop_h2_latent1': 0.7,   # Trait 1: 70% of genetic variance is latent (no PGS)
     'prop_h2_latent2': 1.0,   # Trait 2: 100% of genetic variance is latent (no PGS)
+    'vg2': 0.5,               # Trait 2 total genetic variance (fixed)
+    're': 0.1,                # Environmental correlation between traits (fixed)
     'am11': 0,
     'am12': 0,
     'am21': 0,
     'f12': 0.0,               # No cross-trait vertical transmission
     'f21': 0.0,               # No cross-trait vertical transmission
-    's11': 0.0,               # No shared environment for trait 1
-    's22': 0.0,               # No shared environment for trait 2
-    's12': 0.0,               # No cross-trait shared environment
-    's21': 0.0,               # No cross-trait shared environment
+    's11': 0.5,               # Shared environment for trait 1
+    's22': 0.5,               # Shared environment for trait 2
+    's12': 0.5,               # Cross-trait shared environment
+    's21': 0.5,               # Cross-trait shared environment
 }
 
 # Relationship types to analyze
@@ -284,7 +288,7 @@ def extract_and_analyze_relationships(results, iteration):
     for rel_path in RELATIONSHIP_TYPES:
         try:
             # Note: trimmed_results only contains the final 3 generations
-            # They are now indexed as 0, 1, 2 (corresponding to original gens 12, 13, 14)
+            # They are now indexed as 0, 1, 2 (corresponding to original gens 17, 18, 19)
             gen_indices = [0, 1, 2]
 
             pairs = find_relationship_pairs(
@@ -373,7 +377,7 @@ def run_single_iteration(iteration, condition_name, params, matrices):
 
     # Trim results to only keep final generations to save memory
     # Note: MATES has offset indexing - MATES[i+1] contains mates FROM generation i
-    # For FINAL_GENS = [12, 13, 14], we need MATES[12], [13], [14], and [15] (for mating in gen 14)
+    # For FINAL_GENS = [17, 18, 19], we need MATES[17], [18], [19], and [20] (for mating in gen 19)
     mates_indices = FINAL_GENS + [FINAL_GENS[-1] + 1] if FINAL_GENS[-1] + 1 < len(results['HISTORY']['MATES']) else FINAL_GENS
 
     trimmed_results = {

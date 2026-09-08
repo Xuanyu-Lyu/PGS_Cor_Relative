@@ -43,8 +43,8 @@ ITERATIONS_PER_CONDITION = 1   # Each condition is unique; one simulation per co
 CONDITIONS_PER_JOB = 40        # Conditions (simulations) processed per SLURM job
 N_CONDITIONS_TOTAL = 20000     # Total unique conditions (500 jobs × 40 conditions)
 POP_SIZE = 40000
-N_GENERATIONS = 15
-FINAL_GENS = [12, 13, 14]  # Final 3 generations to analyze
+N_GENERATIONS = 20
+FINAL_GENS = [17, 18, 19]  # Final 3 generations to analyze
 N_CV = 1000
 MAF_MIN = 0.01
 MAF_MAX = 0.5
@@ -54,7 +54,7 @@ PARAM_BOUNDS = {
     'prop_h2_latent1': [0.30,  0.9],
     #'prop_h2_latent2': [0.5,  0.9],
     'vg1':             [0.2,  0.8],
-    'vg2':             [0.2,  0.8],
+    #'vg2':             [0.2,  0.8],  # fixed below
     're':              [0.0,  0.6],
     'am22':            [0.25, 0.75],
     'rg':              [0.20, 0.90],
@@ -73,7 +73,8 @@ FIXED_PARAMS = {
     's12': 0,
     's21': 0,
     's22': 0,
-    'prop_h2_latent2': 1.0 
+    'vg2': 0.5,               # Trait 2 total genetic variance (fixed)
+    'prop_h2_latent2': 1.0    # Trait 2: 100% of genetic variance is latent (no PGS)
 }
 
 # Relationship types to analyze
@@ -274,7 +275,7 @@ def extract_and_analyze_relationships(results, iteration):
     for rel_path in RELATIONSHIP_TYPES:
         try:
             # Note: trimmed_results only contains the final 3 generations
-            # They are now indexed as 0, 1, 2 (corresponding to original gens 12, 13, 14)
+            # They are now indexed as 0, 1, 2 (corresponding to original gens 17, 18, 19)
             gen_indices = [0, 1, 2]
             
             pairs = find_relationship_pairs(
@@ -364,7 +365,7 @@ def run_single_iteration(iteration, condition_name, params, matrices):
     
     # Trim results to only keep final generations to save memory
     # Note: MATES has offset indexing - MATES[i+1] contains mates FROM generation i
-    # For FINAL_GENS = [12, 13, 14], we need MATES[12], [13], [14], and [15] (for mating in gen 14)
+    # For FINAL_GENS = [17, 18, 19], we need MATES[17], [18], [19], and [20] (for mating in gen 19)
     mates_indices = FINAL_GENS + [FINAL_GENS[-1] + 1] if FINAL_GENS[-1] + 1 < len(results['HISTORY']['MATES']) else FINAL_GENS
     
     trimmed_results = {
