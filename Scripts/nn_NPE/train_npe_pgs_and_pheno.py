@@ -41,10 +41,10 @@ Usage
 -----
     python train_npe_pgs_and_pheno.py \
         --data nn_training_05AMmigration_noVT.csv \
-        --output ./results_npe_unweighted_05AMmigration_noVT \
+        --output ./results_npe_unweighted_05AMmigration_noVT2 \
         --epochs 500 \
-        --features_file ./results_npe_unweighted_05AMmigration_noVT/features.txt \
-        --params_file ./results_npe_unweighted_05AMmigration_noVT/params.txt \
+        --features_file ./results_npe_unweighted_05AMmigration_noVT2/features.txt \
+        --params_file ./results_npe_unweighted_05AMmigration_noVT2/params.txt \
         --pheno_weight_decay 0 \
         --pgs_weight_decay 0
 """

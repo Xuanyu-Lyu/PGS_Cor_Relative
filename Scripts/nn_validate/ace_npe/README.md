@@ -39,6 +39,13 @@ python 05_simulate_posterior_recovery.py --model_dir no_n_pairs_gaussian_prior \
 
 # 06 — comparison figures and tables   -> results/analysis/
 jupyter lab 06_analysis.ipynb
+
+# 07 — is the reported SE correct?     -> results/se_calibration/
+#      Monte-Carlo: replicate the SAME condition 200x, so the spread of the
+#      estimates is the TRUE sampling SE to compare the posterior SD against.
+python 05_simulate_posterior_recovery.py --model_dir se_proxy \
+       --n_conditions 24 --n_reps 200 --output npe_se_montecarlo.csv
+jupyter lab 07_se_calibration.ipynb
 ```
 
 `demo_single_fit.ipynb` is a standalone illustration of fitting one dataset;
@@ -57,6 +64,7 @@ ace_npe/
 ├── 04_fit_openmx_reference.R         OpenMx MLE reference + test conditions
 ├── 05_simulate_posterior_recovery.py NPE fits on those same conditions
 ├── 06_analysis.ipynb                 OpenMx vs NPE comparison
+├── 07_se_calibration.ipynb           is the reported SE correct?
 ├── demo_single_fit.ipynb             worked single-observation example
 ├── data/                             inputs and shared test conditions
 │   ├── ace_training_data*.csv
@@ -65,6 +73,7 @@ ace_npe/
     ├── models/<run>/                 posterior.pkl, config.json, scaler, metrics
     ├── simulations/                  OpenMx + NPE recovery results
     ├── analysis/                     STEP 06 figures and summary tables
+    ├── se_calibration/               STEP 07 SE-calibration figures + tables
     ├── oos/<run>/                    STEP 03 calibration output
     └── demo/                         demo notebook figures
 ```
@@ -416,22 +425,198 @@ posterior SD (↔ SE) and MAP.
 → `results/simulations/npe_simulation_results*.csv`
 
 **`06_analysis.ipynb`** — aggregates both estimators by sample size and
-compares empirical SD of estimates, mean reported SE, and bias with 95 % CI
+compares **RMSE around truth**, mean reported SE, and bias with 95 % CI
 ribbons. Every figure and table is written through the `save_fig` / `save_table`
 helpers. → `results/analysis/` (5 figures + 11 tables, including a tidy
 long-format `summary_long.csv`)
 
+**`07_se_calibration.ipynb`** — checks whether the reported SE is *correct*.
+STEP 05 with `--n_reps 200 --n_conditions 24` replicates each condition 200
+times at fixed true parameters, so the **spread of the estimates across
+replicates is the true sampling SE**. Comparing that against the mean reported
+posterior SD gives the calibration ratio. Reports `ratio_se`, `ratio_rmse` and
+95 % CI coverage side by side — see the shrinkage caveat below for why the
+first of those must not be read alone. → `results/se_calibration/`
+
+**Result** (24 conditions × 200 replicates, `se_proxy`, retrained to include
+$N=20\,000$ in its training range — see Part 7 for why that matters). Below
+$N=2000$, i.e. everywhere the flow was densely trained:
+
+| Parameter | `ratio_se` | `ratio_rmse` | `coverage95` |
+|---|---|---|---|
+| A | 1.32 | 1.15 | 0.955 |
+| C | 1.26 | 1.07 | 0.946 |
+| E | 1.32 | 1.15 | 0.940 |
+
+**The NPE's uncertainty is trustworthy, and mildly conservative, everywhere
+except very large $N$.** Coverage is close to nominal (0.94–0.96) and the
+reported SD is within roughly 15 % of total error. The larger `ratio_se`
+(~1.3) is the shrinkage signature described in Part 5, not a miscalibration:
+the posterior mean is pulled toward the prior, so the *spread of the point
+estimates* is smaller than the honest uncertainty about them.
+
+At $N=20\,000$ this breaks down badly — `ratio_se` 2.1–3.2, `ratio_rmse`
+1.8–2.0 — and, contrary to what an earlier pass through this analysis
+concluded, it is **not** a training-range extrapolation artefact: see Part 7
+for the retrain that tested and ruled that out.
+
 ---
 
-## Part 5 — Trained runs
+## Part 5 — The math behind the three calibration metrics
+
+STEP 07 fixes a parameter setting $\theta_0=(A,C,E)$ and a sample size $N$,
+draws $R$ independent datasets $x_1,\dots,x_R \sim p(x\mid\theta_0)$ (fresh
+twin data each time), and fits each with the trained posterior
+$q_\phi(\theta\mid x)$. That gives, per replicate $r$: a posterior mean
+$\hat\theta_r=\mathbb E_{q_\phi}[\theta\mid x_r]$ and a posterior SD
+$s_r=\mathrm{SD}_{q_\phi}[\theta\mid x_r]$ (both read straight off
+`posterior.sample`). Three quantities are built from $\{\hat\theta_r, s_r\}$.
+
+### 5.1 `mc_se` — the true sampling SE, and its own uncertainty
+
+$$
+\texttt{mc\_se} = \sqrt{\frac{1}{R-1}\sum_{r=1}^R (\hat\theta_r-\bar{\hat\theta})^2}
+$$
+
+This is the textbook definition of a standard error: the SD of an estimator's
+sampling distribution, here obtained by literally sampling that distribution
+$R$ times rather than approximating it. It is what `mean_post_sd` is being
+checked against.
+
+Because it is itself computed from a finite sample, `mc_se` carries its own
+Monte-Carlo error. For $(R-1)S^2/\sigma^2 \sim \chi^2_{R-1}$,
+$\operatorname{Var}(S^2)=2\sigma^4/(R-1)$; the delta method
+($g(u)=\sqrt u,\ g'(\sigma^2)=1/2\sigma$) then gives
+
+$$
+\frac{\mathrm{SD}(S)}{\sigma} \approx \frac{1}{\sqrt{2(R-1)}}
+$$
+
+— the relative precision printed at the top of the notebook (≈7 % at $R=200$,
+≈2.2 % at $R=1000$). This bounds how finely `ratio_se` and `ratio_rmse` can be
+resolved; a ratio that differs from 1 by less than this margin is noise, not
+miscalibration.
+
+### 5.2 `ratio_se` — and why it is *not* expected to equal 1
+
+$$
+\overline{s} = \frac1R\sum_{r=1}^R s_r,
+\qquad
+\texttt{ratio\_se} = \frac{\overline{s}}{\texttt{mc\_se}}
+$$
+
+At finite $N$ the posterior is a **shrinkage estimator**: with an informative
+prior, $\hat\theta(x)$ is pulled toward the prior mean, which *reduces* the
+sampling variance of $\hat\theta$ below what the posterior SD reports. A
+minimal model makes this exact. Approximate the sampling distribution of a
+summary statistic by $\hat\theta_{\mathrm{lik}}(x)\sim\mathcal N(\theta_0,\sigma_{\mathrm{lik}}^2)$
+and the prior by $\theta\sim\mathcal N(\mu_0,\sigma_0^2)$ (a Gaussian stand-in
+for the pipeline's effective $\mathcal U(0,1)^3$ prior). Standard
+Normal–Normal conjugacy gives
+
+$$
+\theta \mid x \;\sim\; \mathcal N\big(w\,\hat\theta_{\mathrm{lik}}(x) + (1-w)\mu_0,\; \sigma_{\mathrm{post}}^2\big),
+\qquad
+w=\frac{\sigma_0^2}{\sigma_0^2+\sigma_{\mathrm{lik}}^2},
+\qquad
+\sigma_{\mathrm{post}}^2 = w\,\sigma_{\mathrm{lik}}^2
+$$
+
+Since only $\hat\theta_{\mathrm{lik}}(x)$ varies across replicates, the sampling
+variance of the posterior mean is
+$\operatorname{Var}_x[\hat\theta_{\mathrm{Bayes}}]=w^2\sigma_{\mathrm{lik}}^2$ — i.e.
+$\texttt{mc\_se}=w\,\sigma_{\mathrm{lik}}$, while the posterior SD is
+$\sigma_{\mathrm{post}}=\sqrt w\,\sigma_{\mathrm{lik}}$. Their ratio:
+
+$$
+\texttt{ratio\_se} \;=\; \frac{\sigma_{\mathrm{post}}}{\texttt{mc\_se}} \;=\; \frac{1}{\sqrt w} \;\ge\; 1
+$$
+
+with equality only as $w\to1$ — i.e. as $N\to\infty$ and the likelihood
+dominates the prior ($\sigma_{\mathrm{lik}}\to0$). This is the toy-model version
+of the **Bernstein–von Mises theorem**: as $N$ grows, the posterior becomes
+asymptotically Gaussian, centred at the MLE, with covariance equal to the
+inverse Fisher information — matching the frequentist sampling covariance of
+$\hat\theta$, so prior influence (and `ratio_se`'s excess over 1) vanishes. At
+finite $N$, `ratio_se` > 1 is the **expected signature of a correctly
+calibrated Bayesian estimator**, not evidence of miscalibration — which is
+exactly the measured pattern (§ Part 4): `ratio_se` ≈ 1.3 in-range, closer to 1
+would only be expected in the $N\to\infty$ limit.
+
+### 5.3 `ratio_rmse` — the Bayes-risk identity
+
+$$
+\texttt{rmse} = \sqrt{\frac1R\sum_r(\hat\theta_r-\theta_0)^2}, \qquad
+\texttt{ratio\_rmse} = \frac{\overline s}{\texttt{rmse}}
+$$
+
+Unlike `ratio_se`, this ratio has an exact target of 1 — but only once pooled
+correctly. For the posterior mean under squared-error loss, decision theory
+gives an exact identity (not an approximation): averaged over the **same**
+joint distribution $\theta\sim p(\theta),\ x\sim p(x\mid\theta)$ used to train
+the flow,
+
+$$
+\underbrace{\mathbb E_{\theta,x}\!\big[(\theta-\hat\theta(x))^2\big]}_{\text{Bayes risk}}
+\;=\;
+\mathbb E_x\!\big[\operatorname{Var}(\theta\mid x)\big]
+$$
+
+by the tower rule: conditioning on $x$ first, $\mathbb
+E_{\theta\mid x}[(\theta-\hat\theta(x))^2]=\operatorname{Var}(\theta\mid x)$ exactly,
+because $\hat\theta(x)$ *is* the posterior mean. So a correctly-specified,
+well-trained posterior has $\overline{s^2}\approx\texttt{rmse}^2$ **once
+averaged over a representative sample of $\theta$ drawn like the prior** —
+which is exactly what pooling `ratio_rmse` over many conditions approximates,
+and why it is the fairer target: 1.06–1.21 in-range, versus `ratio_se`'s 1.3.
+
+One caveat this identity makes explicit: the test conditions come from
+`04_fit_openmx_reference.R`'s Dirichlet(1,1,1) draws ($A+C+E=1$ exactly), not
+the pipeline's actual training prior — independent $A,C,E\sim\mathcal U(0,1)$
+(no sum constraint). The identity above is exact only when the two coincide, so
+residual drift of `ratio_rmse` away from 1 partly reflects that mismatch, not
+purely flow miscalibration.
+
+### 5.4 `coverage95` — marginal vs. pointwise, and why per-condition coverage can miss 0.95
+
+$$
+\texttt{coverage95} = \frac1R\sum_{r=1}^R \mathbb 1\!\big[\theta_0 \in [q_{2.5}(\theta\mid x_r),\, q_{97.5}(\theta\mid x_r)]\big]
+$$
+
+By construction, a 95 % credible interval satisfies
+$P(\theta\in\mathrm{CI}(x)\mid x)=0.95$ for every $x$ — that is simply what
+"95 % credible" means. Averaging over the joint $(\theta,x)$ then gives exact
+**marginal** coverage:
+
+$$
+P\big(\theta\in\mathrm{CI}(x)\big) = \mathbb E_x\big[P(\theta\in\mathrm{CI}(x)\mid x)\big] = 0.95
+$$
+
+But `coverage95` is computed at **fixed** $\theta=\theta_0$ — a *conditional*
+(frequentist) coverage — and nothing above guarantees that equals 0.95 for
+every individual $\theta_0$, even for an exactly-computed posterior. Bayesian
+credible intervals guarantee coverage on average over the prior, not
+pointwise. Pointwise coverage converges to the nominal level only
+asymptotically, again by Bernstein–von Mises, and — critically — only at
+**interior** points of the parameter space; the theorem's regularity
+conditions fail at a boundary. $A\to0$ or $C\to0$ are literally the boundary
+of this model's support, which is a concrete, testable reason to expect the
+two low-$A$/low-$C$ conditions flagged in Part 7 to behave differently from
+the interior ones — worth checking directly against `coverage95` in
+`se_calibration_by_condition.csv` once a larger `--n_reps` run tightens the
+per-condition estimate.
+
+---
+
+## Part 6 — Trained runs
 
 The two runs STEP 06 depends on have been **retrained under the sufficient
 reduction** and are current. The remaining four still carry the old
-`S[0,0]`-only features and warn on load (see Part 6).
+`S[0,0]`-only features and warn on load (see Part 7).
 
 | Run | Features | Prior | Test R² | Status |
 |---|---|---|---|---|
-| `se_proxy` | 5 (`se_proxy`) | boxuniform | **0.881** | ✅ current — **default**, the "with N" arm of STEP 06 and the demo |
+| `se_proxy` | 5 (`se_proxy`) | boxuniform | **0.882** | ✅ current — **default**, the "with N" arm of STEP 06 and the demo. Trained on $N\in\{50,\dots,5000,20\,000\}$ |
 | `no_n_pairs_gaussian_prior` | 4 | gaussian | **0.998** | ✅ current — the "no N" arm of STEP 06 |
 | `gaussian_prior` | 5 (`log_N_pairs`) | gaussian | 0.862 | ⚠ stale features — retrain before use |
 | `boxuniform_prior` | 5 (`log_N_pairs`) | boxuniform | 0.857 | ⚠ stale features — retrain before use |
@@ -439,24 +624,31 @@ reduction** and are current. The remaining four still carry the old
 | `no_n_pairs_legacy` | 4 | — | 0.972 | ⚠ stale + posterior will not load |
 
 Retraining the two current runs on the sufficient features improved both, as
-the $2/(1+\rho^2)$ efficiency argument predicts:
+the $2/(1+\rho^2)$ efficiency argument predicts, and `se_proxy` was retrained a
+second time to add $N=20\,000$ to its training range (Part 7):
 
-| Run | R² before → after | RMSE before → after |
-|---|---|---|
-| `se_proxy` | 0.8731 → **0.8813** | 0.1037 → **0.0980** (−5.5 %) |
-| `no_n_pairs_gaussian_prior` | 0.9943 → **0.9976** | 0.0211 → **0.0142** (−33 %) |
+| Run | R² | RMSE | Change |
+|---|---|---|---|
+| `se_proxy` — original | 0.8731 | 0.1037 | baseline |
+| `se_proxy` — sufficient-variance fix | 0.8813 | 0.0980 | −5.5 % RMSE |
+| `se_proxy` — + $N=20\,000$ in training | **0.8816** | **0.0991** | ≈ unchanged |
+| `no_n_pairs_gaussian_prior` — original | 0.9943 | 0.0211 | baseline |
+| `no_n_pairs_gaussian_prior` — sufficient-variance fix | **0.9976** | **0.0142** | −33 % RMSE |
 
 > **These R² values are not comparable across rows.** The 4-feature runs were
 > trained and tested on fixed-$N$ data (`ace_training_data_N20000.csv`, so
 > $N = 20\,000$ throughout), where sampling noise is tiny and almost any
 > estimator looks excellent. The 5-feature runs used mixed
-> $N \in [50, 5000]$, which includes genuinely hard low-$N$ cases. Compare
-> estimators on the STEP 06 output, which holds the test conditions fixed —
-> not on this column.
+> $N \in [50, 5000, 20\,000]$, which includes genuinely hard low-$N$ cases.
+> Compare estimators on the STEP 06 output, which holds the test conditions
+> fixed — not on this column. Note also that a good aggregate R² on the
+> held-out test split is fully consistent with the N=20,000 SE-calibration
+> problem in Part 7: R² measures the point estimate, and that stays accurate;
+> the reported *uncertainty* is what under-shrinks.
 
 ---
 
-## Part 6 — Known limitations and gotchas
+## Part 7 — Known limitations and gotchas
 
 **⚠ Four of the six trained runs predate the sufficient-variance fix and must
 be retrained before use.** The pipeline originally used `S[0,0]` alone as each `*_var`
@@ -494,24 +686,63 @@ trust a warning-flagged run for new inference.**
 `se_proxy` and `no_n_pairs_gaussian_prior` — the two runs STEP 06 consumes —
 have already been retrained, and `data/` regenerated, so the current STEP 06
 output is valid. The other four runs are untouched; regenerate and retrain
-them the same way (Part 7) before using them. STEP 04's OpenMx output was
+them the same way (Part 8) before using them. STEP 04's OpenMx output was
 **not** rerun and did not need to be: it consumes the full covariance matrices
 and the theoretical test conditions, neither of which changed.
 
-**STEP 06 evaluates at N = 20 000, which is outside the with-N model's
-training range.** `01_generate_training_data.py` draws
-$N \in \{50,\dots,5000\}$ by default, but `04_fit_openmx_reference.R` and
-`05_simulate_posterior_recovery.py` both evaluate at
-$N \in \{50,\dots,2000, 20\,000\}$. The `se_proxy` feature $1/\sqrt N$ is
-therefore extrapolated by a factor of 2 beyond anything seen in training at
-that last grid point, and it shows: the NPE tracks OpenMx's reported SE to
-within 5 % from $N=50$ to $N=2000$ (ratio 0.72 → 1.02) but then reports SEs
-**1.9× too wide** at $N=20\,000$. Read that column as an out-of-distribution
-probe, not as a fair comparison. To close the gap, regenerate training data
-covering the evaluation grid — e.g.
-`--n_pairs 50 100 200 500 1000 2000 5000 20000` — and retrain. This mismatch
-predates the sufficient-variance fix; it is a property of the experiment
-design, not of the estimator.
+**At N = 20,000 the reported SE is too wide by ~1.8×, and this is *not* an
+extrapolation artefact — it persists after retraining in-range.** The first
+version of this finding blamed training-range extrapolation:
+`01_generate_training_data.py` originally drew $N\in\{50,\dots,5000\}$, so
+the `se_proxy`$=1/\sqrt N$ feature at $N=20\,000$ was unseen in training. That
+hypothesis was **tested directly** by adding $N=20\,000$ to the default
+training range (now $\{50,\dots,5000,20\,000\}$, ~6,200 of 50,000 training
+rows at that value) and retraining `se_proxy` from scratch — same
+hyperparameters, otherwise identical pipeline. The miscalibration barely
+moved (`ratio_se` for A: 2.65 → 2.40; C: 1.96 → 2.09; E: 3.18 → 3.17, on 24
+conditions × 200 replicates each).
+
+Splitting the STEP 07 Monte-Carlo output into point-estimate precision versus
+reported-uncertainty precision shows exactly where the shrinkage stalls, using
+$A$ as an example (mean over the 24 conditions, N=2000 → N=20,000, a 10×
+increase in data that should shrink any SE by $\sqrt{10}\approx3.16\times$):
+
+| Quantity | N=2000 | N=20,000 | Ratio | Expected |
+|---|---|---|---|---|
+| `mc_se` (true spread of point estimates) | 0.0263 | 0.0092 | **2.85×** | 3.16× |
+| `mean_post_sd` (what the NPE reports) | 0.0326 | 0.0182 | **1.79×** | 3.16× |
+
+**The point estimates themselves are precise and well-behaved at N=20,000** —
+`mc_se` tracks the theoretical $1/\sqrt N$ scaling almost exactly. It is
+specifically the *reported* posterior width that fails to sharpen enough,
+under-shrinking by nearly 2× relative to what the data actually support. That
+localizes the problem to the flow's density estimator, not to the se_proxy
+feature or the training range: something about representing an extremely
+peaked conditional density — the posterior this well-identified, high-N regime
+calls for — is harder for this architecture (NSF, 128 hidden, 8 transforms) or
+undertrained relative to the more diffuse posteriors the bulk of training data
+produces. Candidates worth testing: more `flow_transforms`, more epochs
+specifically weighted toward high-$N$ rows, or an embedding network reinstated
+for exactly the reason given in §3.4 — with a coarser sufficient statistic this
+was unnecessary, but resolving a razor-thin posterior may need more of the
+input signal preserved than raw features conveniently provide. This is now an
+open problem, not a data-generation bug.
+
+**Two of the twenty-four Monte-Carlo conditions stop gaining precision with
+more data — and this held up under a 2× larger, independently-drawn set of
+conditions.** Between $N=200$ and $N=2000$ (a 10× increase, so a 3.16× drop in
+SE is expected), condition 5 ($A{=}0.095$, $C{=}0.149$, $E{=}0.756$) improved
+by only 1.07× and condition 8 ($A{=}0.191$, $C{=}0.029$, $E{=}0.780$) by
+1.57×, while the other 22 conditions — including all 12 added in the larger
+rerun — reached 1.9–3.7×. Both stalling conditions have **small $A$ and small
+$C$ with large $E$**, and no new condition in the expanded set reproduced that
+pattern, which sharpens rather than weakens the hypothesis: this looks like a
+real feature of the low-$A$/low-$C$ corner, not a fluke of 12 samples. It could
+be prior domination where $A$ and $C$ are weakly identified, or a floor on how
+sharp a posterior the flow can represent — and ties to the boundary caveat in
+§5.4 (Bernstein–von Mises asymptotics fail near $A\to0$ or $C\to0$). Worth
+chasing before trusting the NPE in that corner. Per-condition numbers are in
+`results/se_calibration/se_calibration_by_condition.csv`.
 
 **The no-N model's posterior width is nearly constant in $N$** — by
 construction, and it is the clearest result in STEP 06. Its mean SE sits at
@@ -521,6 +752,33 @@ produced the covariances. Against OpenMx that makes it ~7× overconfident at
 $N=50$ and ~2.7× underconfident at $N=20\,000$. Point estimates stay roughly
 unbiased throughout; it is the *uncertainty* that is uninformative. This is
 the empirical case for feeding the network an $N$ encoding.
+
+**STEP 06's precision row measures RMSE, not the SD of estimates — and this
+was a real bug.** That panel used to plot `SD(A_est)` taken *across the 200
+different test conditions*. Because each condition has a different true value,
+that statistic is dominated by the Dirichlet spread of the conditions
+themselves and is nearly invariant to sample size — it read 0.2515 at $N=50$
+and 0.2281 at $N=20\,000$, against a true across-condition spread of 0.2317.
+It looked like "precision barely improves with N", which is false. It now
+plots RMSE of each estimate around *its own* truth, which falls properly with
+$N$ (OpenMx $\hat A$: 0.148 → 0.011 across the grid) and is directly
+comparable with the mean reported SE plotted beneath it. Genuine
+fixed-condition sampling SEs come from STEP 07.
+
+**Posterior SD is not expected to equal the Monte-Carlo SD of the point
+estimate at small $N$.** The NPE posterior is Bayesian under an effective
+$\mathcal U(0,1)^3$ prior, so at small $N$ the posterior mean is shrunk toward
+the prior. Shrinkage *reduces* the sampling variance of the estimator while
+introducing bias, so `mc_se` can sit below the reported posterior SD even for a
+perfectly calibrated posterior. Read STEP 07's three metrics together:
+`ratio_se` (vs the spread of point estimates), `ratio_rmse` (vs total error,
+which absorbs the bias) and `coverage95` (the direct Bayesian check, target
+0.95). Measured on the STEP 07 grid (24 conditions × 200 replicates): `ratio_se`
+sits at ≈1.3 across the whole in-distribution range ($N\le2000$) while
+`ratio_rmse` stays at 1.07–1.15 and coverage holds at 0.94–0.96. The gap
+between the two ratios is real and persistent, and it is the shrinkage term —
+treating `ratio_se != 1` as a defect is a misreading. (This pattern breaks
+down at $N=20\,000$ for a different, tested reason — see below.)
 
 **Two archived posteriors cannot be loaded.** `default_legacy` and
 `no_n_pairs_legacy` were pickled from a `__main__` scope that defined
@@ -545,9 +803,9 @@ CPU.
 
 ---
 
-## Part 7 — Reproducing from scratch
+## Part 8 — Reproducing from scratch
 
-This is also the sequence to run after the sufficient-variance fix (Part 6).
+This is also the sequence to run after the sufficient-variance fix (Part 7).
 STEP 04 is the slow step and can be **skipped** if
 `results/simulations/ace_simulation_results.csv` already exists — the OpenMx
 side is unaffected by the fix.
@@ -575,6 +833,11 @@ python 05_simulate_posterior_recovery.py --model_dir no_n_pairs_gaussian_prior \
        --output npe_simulation_results_no_n.csv
 
 jupyter lab 06_analysis.ipynb
+
+# STEP 07: Monte-Carlo SE calibration (~18 min for 16,800 fits)
+python 05_simulate_posterior_recovery.py --model_dir se_proxy \
+       --n_conditions 24 --n_reps 200 --output npe_se_montecarlo.csv
+jupyter lab 07_se_calibration.ipynb
 ```
 
 **Dependencies:** Python — `sbi`, `torch`, `scikit-learn`, `pandas`, `numpy`,

@@ -17,7 +17,7 @@ command-line arguments.
 Usage
 -----
     python predict_npe_pgs_and_pheno.py \
-        --model_dir results_npe_unweighted_05AMmigration_noVT \
+        --model_dir results_npe_unweighted_05AMmigration_noVT2 \
         --correlations_pgs observed_correlations_PGS.csv \
         --correlations_pheno observed_correlations_pheno.csv \
         --n_samples 1000

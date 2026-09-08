@@ -30,6 +30,13 @@ Usage:
     # The "no N" model (STEP 06 compares both)
     python 05_simulate_posterior_recovery.py --model_dir no_n_pairs_gaussian_prior \
                                              --output npe_simulation_results_no_n.csv
+
+    # Monte-Carlo SE study for STEP 07: replicate the SAME condition many
+    # times, so the SD of the estimates across replicates is the TRUE
+    # sampling SE and can be compared against the reported posterior SD.
+    python 05_simulate_posterior_recovery.py --model_dir se_proxy \
+                                             --n_conditions 24 --n_reps 200 \
+                                             --output npe_se_montecarlo.csv
 """
 
 import argparse
@@ -39,6 +46,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ace_model import (
@@ -70,7 +78,9 @@ def run_simulation(conditions_csv: str,
                    sample_sizes: list[int],
                    n_posterior: int,
                    seed: int,
-                   output_csv: str) -> pd.DataFrame:
+                   output_csv: str,
+                   n_reps: int = 1,
+                   n_conditions: int | None = None) -> pd.DataFrame:
 
     conditions_csv = resolve(conditions_csv, DATA_DIR)
     model_dir      = resolve(model_dir, MODELS_DIR)
@@ -104,12 +114,20 @@ def run_simulation(conditions_csv: str,
     if missing:
         raise ValueError(f"Conditions file missing columns: {missing}")
 
-    n_conditions = len(cond_df)
-    total_fits   = n_conditions * len(sample_sizes)
-    print(f"Running {n_conditions} conditions × {len(sample_sizes)} "
-          f"sample sizes = {total_fits} fits\n")
+    if n_conditions is not None:
+        cond_df = cond_df.head(n_conditions)
 
+    n_cond     = len(cond_df)
+    total_fits = n_cond * len(sample_sizes) * n_reps
+    rep_note   = f" × {n_reps} reps" if n_reps > 1 else ""
+    print(f"Running {n_cond} conditions × {len(sample_sizes)} "
+          f"sample sizes{rep_note} = {total_fits} fits\n")
+
+    # Seed BOTH generators: numpy drives the twin-data simulation, torch drives
+    # posterior.sample(). Without the torch seed the point estimates move by
+    # ~1 posterior-sampling MC error between otherwise identical runs.
     np.random.seed(seed)
+    torch.manual_seed(seed)
 
     rows = []
     counter = 0
@@ -121,57 +139,64 @@ def run_simulation(conditions_csv: str,
         E_t   = float(cond["E"])
 
         for N in sample_sizes:
-            counter += 1
+            for rep in range(n_reps):
+                counter += 1
 
-            # ---- Simulate twin pairs and get sample covariances ------------
-            # summarize_cov applies the sufficient reduction (mean of the two
-            # diagonal entries), matching how training data is generated.
-            S_mz, S_dz = simulate_covariances(A_t, C_t, E_t, N_pairs=N)
-            mz_var, mz_cov = summarize_cov(S_mz)
-            dz_var, dz_cov = summarize_cov(S_dz)
+                # ---- Simulate twin pairs and get sample covariances ------------
+                # summarize_cov applies the sufficient reduction (mean of the two
+                # diagonal entries), matching how training data is generated.
+                S_mz, S_dz = simulate_covariances(A_t, C_t, E_t, N_pairs=N)
+                mz_var, mz_cov = summarize_cov(S_mz)
+                dz_var, dz_cov = summarize_cov(S_dz)
 
-            # ---- Build feature vector (matching training feature order) -----
-            x_raw    = build_features(mz_var, mz_cov, dz_var, dz_cov,
-                                      N, feature_cols)
-            x_scaled = scaler.transform(x_raw).flatten()
+                # ---- Build feature vector (matching training feature order) -----
+                x_raw    = build_features(mz_var, mz_cov, dz_var, dz_cov,
+                                          N, feature_cols)
+                x_scaled = scaler.transform(x_raw).flatten()
 
-            # ---- Draw posterior samples ------------------------------------
-            p_mean, p_std, p_map = posterior_stats(posterior, x_scaled, n_posterior)
+                # ---- Draw posterior samples ------------------------------------
+                p_mean, p_std, p_map, p_lo, p_hi = posterior_stats(
+                    posterior, x_scaled, n_posterior)
 
-            A_est, C_est, E_est = p_mean[0], p_mean[1], p_mean[2]
-            A_se,  C_se,  E_se  = p_std[0],  p_std[1],  p_std[2]
-            A_map, C_map, E_map = p_map[0],  p_map[1],  p_map[2]
+                A_est, C_est, E_est = p_mean[0], p_mean[1], p_mean[2]
+                A_se,  C_se,  E_se  = p_std[0],  p_std[1],  p_std[2]
+                A_map, C_map, E_map = p_map[0],  p_map[1],  p_map[2]
 
-            rows.append({
-                "condition_id" : cid,
-                "sample_size"  : N,
-                "true_A"       : A_t,
-                "true_C"       : C_t,
-                "true_E"       : E_t,
-                # Simulated (noisy) covariance statistics for this draw
-                "mz_var"       : mz_var,
-                "mz_cov"       : mz_cov,
-                "dz_var"       : dz_var,
-                "dz_cov"       : dz_cov,
-                # NPE posterior means  (= point estimates, analogous to *_est)
-                "A_est"        : A_est,
-                "C_est"        : C_est,
-                "E_est"        : E_est,
-                # NPE posterior SDs  (= uncertainty, analogous to *_se)
-                "A_se"         : A_se,
-                "C_se"         : C_se,
-                "E_se"         : E_se,
-                # NPE MAP estimates
-                "A_map"        : A_map,
-                "C_map"        : C_map,
-                "E_map"        : E_map,
-            })
+                rows.append({
+                    "condition_id" : cid,
+                    "sample_size"  : N,
+                    "rep"          : rep,
+                    "true_A"       : A_t,
+                    "true_C"       : C_t,
+                    "true_E"       : E_t,
+                    # Simulated (noisy) covariance statistics for this draw
+                    "mz_var"       : mz_var,
+                    "mz_cov"       : mz_cov,
+                    "dz_var"       : dz_var,
+                    "dz_cov"       : dz_cov,
+                    # NPE posterior means  (= point estimates, analogous to *_est)
+                    "A_est"        : A_est,
+                    "C_est"        : C_est,
+                    "E_est"        : E_est,
+                    # NPE posterior SDs  (= uncertainty, analogous to *_se)
+                    "A_se"         : A_se,
+                    "C_se"         : C_se,
+                    "E_se"         : E_se,
+                    # NPE MAP estimates
+                    "A_map"        : A_map,
+                    "C_map"        : C_map,
+                    "E_map"        : E_map,
+                    # 95% credible interval bounds (STEP 07 coverage)
+                    "A_ci_lo"      : p_lo[0], "A_ci_hi": p_hi[0],
+                    "C_ci_lo"      : p_lo[1], "C_ci_hi": p_hi[1],
+                    "E_ci_lo"      : p_lo[2], "E_ci_hi": p_hi[2],
+                })
 
-            if counter % max(1, total_fits // 20) == 0 or counter == total_fits:
-                print(f"  [{counter:4d} / {total_fits}]  "
-                      f"condition {cid:3d}  N = {N:5d}  "
-                      f"A_est={A_est:.3f}  C_est={C_est:.3f}  "
-                      f"E_est={E_est:.3f}")
+                if counter % max(1, total_fits // 20) == 0 or counter == total_fits:
+                    print(f"  [{counter:4d} / {total_fits}]  "
+                          f"condition {cid:3d}  N = {N:5d}  "
+                          f"A_est={A_est:.3f}  C_est={C_est:.3f}  "
+                          f"E_est={E_est:.3f}")
 
     results_df = pd.DataFrame(rows)
     results_df.to_csv(output_csv, index=False)
@@ -234,6 +259,22 @@ def main():
         help="NumPy random seed for data simulation (default: 2025)",
     )
     parser.add_argument(
+        "--n_reps",
+        type=int,
+        default=1,
+        help="Replicates per (condition, sample size). 1 (default) reproduces "
+             "the STEP 06 sweep. Use >1 for the STEP 07 Monte-Carlo SE study, "
+             "where the SD across replicates is the TRUE sampling SE.",
+    )
+    parser.add_argument(
+        "--n_conditions",
+        type=int,
+        default=None,
+        help="Use only the first K conditions (default: all). The conditions "
+             "file is i.i.d. Dirichlet draws, so the first K is an unbiased "
+             "subsample.",
+    )
+    parser.add_argument(
         "--output",
         type=str,
         default="npe_simulation_results.csv",
@@ -249,6 +290,8 @@ def main():
         n_posterior=args.n_posterior,
         seed=args.seed,
         output_csv=args.output,
+        n_reps=args.n_reps,
+        n_conditions=args.n_conditions,
     )
 
 

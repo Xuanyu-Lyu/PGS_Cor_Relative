@@ -11,7 +11,8 @@ Contents
 --------
 Paths
     SCRIPT_DIR, DATA_DIR, RESULTS_DIR, MODELS_DIR, SIM_DIR, ANALYSIS_DIR,
-    DEMO_DIR — the single source of truth for where things are read/written.
+    SE_CAL_DIR, DEMO_DIR — the single source of truth for where things are
+    read/written.
 
 ACE model math
     ``simulate_covariances``  — draw sample MZ/DZ covariance matrices.
@@ -23,6 +24,7 @@ NPE helpers
     ``map_from_samples`` — per-parameter MAP via 1-D KDE.
     ``load_posterior``   — load a trained run and report its feature layout.
     ``build_features``   — assemble a feature vector matching a run's config.
+    ``posterior_stats``  — mean / SD / MAP / credible interval for one obs.
 
 Note on ACEEmbeddingNet
 -----------------------
@@ -59,6 +61,7 @@ RESULTS_DIR  = SCRIPT_DIR / "results"
 MODELS_DIR   = RESULTS_DIR / "models"
 SIM_DIR      = RESULTS_DIR / "simulations"
 ANALYSIS_DIR = RESULTS_DIR / "analysis"
+SE_CAL_DIR   = RESULTS_DIR / "se_calibration"
 DEMO_DIR     = RESULTS_DIR / "demo"
 
 # Default trained run used by the demo and the posterior-recovery study.
@@ -178,7 +181,11 @@ def generate_training_data(n_samples=20000, n_pairs_options=None, seed=42):
         n_samples:       Number of training samples to generate.
         n_pairs_options: A single int (fixed N for all samples) or a list of
                          ints to draw from randomly.  Defaults to
-                         [50, 100, 200, 500, 1000, 2000, 5000].
+                         [50, 100, 200, 500, 1000, 2000, 5000, 20000] — this
+                         range covers every sample size STEP 05/06/07
+                         evaluate at, so a with-N model trained on the
+                         default never has to extrapolate its se_proxy
+                         (1/sqrt(N)) feature beyond what it saw in training.
         seed:            NumPy random seed.
 
     Returns:
@@ -186,7 +193,7 @@ def generate_training_data(n_samples=20000, n_pairs_options=None, seed=42):
         [mz_var, mz_cov, dz_var, dz_cov, N_pairs, log_N_pairs, se_proxy, A, C, E]
     """
     if n_pairs_options is None:
-        n_pairs_options = [50, 100, 200, 500, 1000, 2000, 5000]
+        n_pairs_options = [50, 100, 200, 500, 1000, 2000, 5000, 20000]
 
     if isinstance(n_pairs_options, (int, np.integer)):
         n_pairs_options = [int(n_pairs_options)]
@@ -408,16 +415,26 @@ def load_posterior(model_dir):
     }
 
 
-def posterior_stats(posterior, x_scaled_1d, n_samples):
+def posterior_stats(posterior, x_scaled_1d, n_samples, ci=(2.5, 97.5)):
     """
     Draw ``n_samples`` posterior draws for one scaled observation.
 
+    Args:
+        posterior:   trained sbi posterior object
+        x_scaled_1d: 1-D array of scaled features for one observation
+        n_samples:   number of posterior draws
+        ci:          percentile pair for the credible interval (default 95%)
+
     Returns
     -------
-    (mean, std, map) : three (n_params,) arrays
+    (mean, std, map, ci_lo, ci_hi) : five (n_params,) arrays
+
+    The interval bounds are what STEP 07 needs to measure coverage — the
+    fraction of replicates whose true value falls inside the reported CI.
     """
     x_t = torch.FloatTensor(np.asarray(x_scaled_1d)).unsqueeze(0)
     with torch.no_grad():
         samples = posterior.sample((n_samples,), x=x_t, show_progress_bars=False)
     s = samples.cpu().numpy()
-    return s.mean(axis=0), s.std(axis=0), map_from_samples(s)
+    return (s.mean(axis=0), s.std(axis=0), map_from_samples(s),
+            np.percentile(s, ci[0], axis=0), np.percentile(s, ci[1], axis=0))
