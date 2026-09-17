@@ -406,7 +406,14 @@ def run_single_iteration(iteration, condition_name, params, matrices):
 def run_condition(condition, project_base):
     """Run all iterations for a single condition."""
     condition_name = condition['name']
-    
+
+    # Skip if this condition was already successfully simulated (e.g. a prior
+    # cluster run completed it before a glitch interrupted the array job).
+    nn_training_file = project_base / condition_name / "nn_training_format.csv"
+    if nn_training_file.exists():
+        print(f"\n  ⏭ Skipping {condition_name}: already simulated ({nn_training_file})")
+        return True
+
     print(f"\n{'#'*70}")
     print(f"# {condition_name}")
     print(f"# Parameters:")

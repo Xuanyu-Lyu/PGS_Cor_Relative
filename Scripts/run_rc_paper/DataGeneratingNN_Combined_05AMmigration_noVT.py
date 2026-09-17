@@ -71,7 +71,7 @@ MAF_MAX = 0.5
 # (see FIXED_PARAMS) to isolate the effect of AM strength and migration rate.
 # Trait 1 = EA (mating trait), Trait 2 = Migration (latent genetic, no PGS)
 PARAM_BOUNDS = {
-    #'vg1':             [0.4,  0.8],   # EA total genetic variance (fixed below)
+    'vg1':             [0.3,  0.8],   # EA total genetic variance (fixed below)
     #'vg2':             [0.1,  0.7],   # Migration total genetic variance (fixed below)
     #'re':              [0.0,  0.5],   # Environmental correlation between traits (fixed below)
     'am11':            [0.25, 0.75],  # Within-island spousal correlation on EA (trait 1)
@@ -84,10 +84,10 @@ PARAM_BOUNDS = {
 # vg1, re, rg, vg2 are also fixed here (no longer sampled; see PARAM_BOUNDS
 # above) so that am11 and move_p are the only free parameters.
 FIXED_PARAMS = {
-    'vg1': 0.6,              # EA total genetic variance (fixed for all conditions)
+    #'vg1': 0.6,              # EA total genetic variance (fixed for all conditions)
     're': 0.2,                # Environmental correlation between traits (fixed)
     'rg': 0.2,                 # Genetic correlation between EA and migration (fixed)
-    'vg2': .8,                # Migration total genetic variance (fixed)
+    'vg2': .5,                # Migration total genetic variance (fixed)
     'prop_h2_latent1': 0.6,   # EA: proportion of h2 that is latent (no PGS)
     'prop_h2_latent2': 1.0,   # Migration: all genetic effects are latent (no observable PGS)
     'f11': 0.0,               # No vertical transmission for EA
