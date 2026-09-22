@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --qos=preemptable
-#SBATCH --job-name=pred_cond_02AElatentAM
+#SBATCH --job-name=pred_cond_01DirAM_PGSonly
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
@@ -8,8 +8,8 @@
 #SBATCH --time=24:00:00
 #SBATCH --chdir /projects/xuly4739/Py_Projects/PGS_Cor_Relative/Scripts/run_rc_paper
 #SBATCH --exclude bmem-rico1
-#SBATCH --output=slurm_logs/pred_cond_02AElatentAM_%A_%a.out
-#SBATCH --error=slurm_logs/pred_cond_02AElatentAM_%A_%a.err
+#SBATCH --output=slurm_logs/pred_cond_01DirAM_PGSonly_%A_%a.out
+#SBATCH --error=slurm_logs/pred_cond_01DirAM_PGSonly_%A_%a.err
 
 # Array for 100 iterations / 5 per task = 20 tasks total
 #SBATCH --array=1-20%20
@@ -18,7 +18,7 @@
 mkdir -p slurm_logs
 
 echo "================================================"
-echo "Predicted Condition: 02_AElatentAM (bivariate AE + latent AM on trait 2)"
+echo "Predicted Condition: 01_DirAM (bivariate independent Direct AM: Trait 1 AE, Trait 2 AFE; posterior means from PGS-only NPE fits)"
 echo "Slurm Job ID: $SLURM_JOB_ID"
 echo "Slurm Array Job ID: $SLURM_ARRAY_JOB_ID"
 echo "Slurm Array Task ID: $SLURM_ARRAY_TASK_ID"
@@ -36,6 +36,6 @@ export ITERATIONS_PER_TASK=5
 export SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}
 
 # Run simulation script
-python -u run_predicted_condition_rc_02AElatentAM.py
+python -u run_predicted_condition_rc_01DirAM_PGSonly.py
 
 echo "Task $SLURM_ARRAY_TASK_ID completed."

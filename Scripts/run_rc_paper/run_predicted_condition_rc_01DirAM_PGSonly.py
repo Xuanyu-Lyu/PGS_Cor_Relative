@@ -20,40 +20,41 @@ from postprocessing import save_simulation_results, extract_individual_measures,
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM")
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_01DirAM_PGSonly")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_01DirAM_PGSonly")
 
-# Bivariate AE + latent AM condition (02_AElatentAM).
-# Single-trait phenotypic AM on trait 2 only (latent factor, am22);
-# traits are genetically and environmentally correlated (rg, re).
-# AE model: no vertical transmission, no shared family environment.
-# Free parameters (prop_h2_latent1, vg1, re, am22, rg) are posterior means from the
-# NPE fit to the observed data (results_npe_unweighted_02AElatentAM); prop_h2_latent2
-# and vg2 are fixed at the values used to generate the NN training data (trait 2 is
-# 100% latent genetic variance, vg2=0.5 — see DataGeneratingNN_Combined_02AElatentAM.py).
+# Bivariate Direct AM condition (01_DirAM): two independent univariate models.
+# Trait 1: AE model (no vertical transmission, no social homogamy), direct AM via am11.
+# Trait 2: AFE model (vertical transmission f22, social homogamy s22), direct AM via am22.
+# No genetic or environmental correlation between traits (rg = re = 0).
+# Trait 1 (AE) free params are posterior means from results_npe_unweighted_01DirAM_AE_PGSonly.
+# Trait 2 (AFE) free params (prop_h2_latent2, am22, f22) are posterior means from
+# results_npe_unweighted_01DirAM_AFE_PGSonly; vg2 and s22 are fixed at the values used
+# to generate the NN training data (see DataGeneratingNN_Combined_01DirAM.py FIXED_PARAMS),
+# not estimated by the NPE.
 CONDITION = {
-    'name': 'Predicted_Condition_02AElatentAM',
-    # Trait 1: AE model, latent genetic variance (posterior mean)
-    'prop_h2_latent1': 0.7021,
-    'vg1': 0.2473,
-    'am11': 0.0,      # no direct AM on trait 1
+    'name': 'Predicted_Condition_01DirAM_PGSonly',
+    # Trait 1: AE model (posterior means, results_npe_unweighted_01DirAM_AE_PGSonly)
+    'prop_h2_latent1': 0.8846,
+    'vg1': 0.5141,
+    'am11': 0.7220,
     'f11': 0.0,       # AE model: no vertical transmission
-    # Trait 2: fixed (not estimated — updated data-generating script fixes these)
-    'prop_h2_latent2': 1.0,
-    'vg2': 0.5,
-    'am22': 0.6784,   # latent AM on trait 2 (single-trait mating)
-    'f22': 0.0,       # AE model: no vertical transmission
+    # Trait 2: AFE model (prop_h2_latent2/am22/f22 posterior means, results_npe_unweighted_01DirAM_AFE_PGSonly)
+    'prop_h2_latent2': 0.8706,
+    'vg2': 0.5,       # fixed (not estimated — see DataGeneratingNN_Combined_01DirAM.py)
+    'am22': 0.6627,
+    'f22': 0.0992,
+    's22': 0.1,       # fixed (not estimated — see DataGeneratingNN_Combined_01DirAM.py)
     's11': 0.0,       # no shared family environment (trait 1)
     's12': 0.0,       # no cross-trait family environment
     's21': 0.0,       # no cross-trait family environment
-    's22': 0.0,       # no shared family environment (trait 2)
-    # Cross-trait parameters (posterior means)
+    # Cross-trait parameters (independent traits)
     'f12': 0.0,
     'f21': 0.0,
     'am12': 0.0,
     'am21': 0.0,
-    'rg': 0.7082,     # genetic correlation
-    're': 0.5613,     # environmental correlation
+    'rg': 0.0,        # no genetic correlation
+    're': 0.0,        # no environmental correlation
 }
 
 # Simulation parameters
@@ -68,8 +69,8 @@ MAF_MAX = 0.5
 # ── Mating scheme ─────────────────────────────────────────────────────────────
 # Set to 1 to mate on trait 1 only, 2 to mate on trait 2 only,
 # or 'both' for bivariate (matrix) AM on both traits simultaneously.
-# Condition 02AElatentAM uses single-trait latent AM on trait 2 only.
-MATE_ON_TRAIT = 2
+# Condition 01DirAM_PGSonly uses independent direct AM on both traits (am12=am21=0).
+MATE_ON_TRAIT = 'both'
 
 # Relationship types to analyze
 RELATIONSHIP_TYPES = [
@@ -95,10 +96,9 @@ RELATIONSHIP_TYPES = [
 def setup_matrices(params):
     """
     Setup covariance and other matrices based on simulation parameters.
-    Condition 02_AElatentAM: bivariate AE model with single-trait latent AM on trait 2.
-    Trait 1: AE model - no VT, no direct AM (am11=0)
-    Trait 2: AE model - no VT, latent AM via am22 (MATE_ON_TRAIT controls which trait is mated on)
-    Cross-trait: genetic correlation rg, environmental correlation re
+    Condition 01_DirAM: two independent traits (rg=re=0), each with direct AM.
+    Trait 1: AE model - no VT, direct AM via am11.
+    Trait 2: AFE model - vertical transmission f22, social homogamy s22, direct AM via am22.
     """
     vg1 = params['vg1']
     vg2 = params['vg2']
@@ -107,7 +107,7 @@ def setup_matrices(params):
     prop_h2_latent1 = params['prop_h2_latent1']
     prop_h2_latent2 = params['prop_h2_latent2']
 
-    # Genetic correlation matrix (effectively identity since rg=0)
+    # Genetic correlation matrix (identity since rg=0)
     k2_matrix = np.array([[1, rg], [rg, 1]])
 
     # Observable genetic variance components
@@ -141,7 +141,7 @@ def setup_matrices(params):
         am_list = [params['am11'] for _ in range(N_GENERATIONS)]
     elif MATE_ON_TRAIT == 2:
         am_list = [params['am22'] for _ in range(N_GENERATIONS)]
-    else:  # 'both': full bivariate AM matrix
+    else:  # 'both': full bivariate AM matrix (independent direct AM on each trait)
         am_mat = np.array([[params['am11'], params['am12']],
                            [params['am21'], params['am22']]])
         am_list = [am_mat.copy() for _ in range(N_GENERATIONS)]
@@ -173,10 +173,10 @@ def run_single_iteration(iteration, condition_name, params, matrices, scratch_di
     print(f"\n{'='*60}")
     print(f"Running {condition_name} - Iteration {iteration + 1}")
     print(f"{'='*60}")
-    
+
     # Set seed for reproducibility
     seed = 12345 + iteration  # Base seed + iteration
-    
+
     # Create iteration directory for summary file
     iter_dir = scratch_dir / f"Iteration_{iteration+1:03d}"
     iter_dir.mkdir(parents=True, exist_ok=True)
@@ -202,10 +202,10 @@ def run_single_iteration(iteration, condition_name, params, matrices, scratch_di
         mate_on_trait=mate_on_trait,
         **matrices
     )
-    
+
     # Run simulation
     results = sim.run_simulation()
-    
+
     return results
 
 def compute_pgs_from_components(measures_df):
@@ -213,12 +213,12 @@ def compute_pgs_from_components(measures_df):
     Compute full PGS from transmissible components.
     PGS1 = TPO1 + TMO1
     PGS2 = TPO2 + TMO2
-    
+
     Parameters:
     -----------
     measures_df : pd.DataFrame
         DataFrame with TPO1, TMO1, TPO2, TMO2 columns
-    
+
     Returns:
     --------
     pd.DataFrame
@@ -232,7 +232,7 @@ def compute_pgs_from_components(measures_df):
 def extract_and_analyze_relationships(results, iteration, output_dir):
     """
     Extract measures and analyze correlations for different relationship types.
-    
+
     Parameters:
     -----------
     results : dict
@@ -241,18 +241,18 @@ def extract_and_analyze_relationships(results, iteration, output_dir):
         Iteration number (0-indexed)
     output_dir : Path
         Output directory
-    
+
     Returns:
     --------
     pd.DataFrame or None
         DataFrame with correlation results for all relationship types
     """
     print(f"\n  Extracting individual measures...")
-    
+
     # Extract measures for all individuals (needed for genealogy)
     # Use TPO/TMO components to compute PGS, plus Y1, Y2
     variables = ['Y1', 'Y2', 'TPO1', 'TPO2', 'TMO1', 'TMO2']
-    
+
     try:
         individual_measures = extract_individual_measures(results, variables)
         # Compute PGS from transmissible components
@@ -261,14 +261,14 @@ def extract_and_analyze_relationships(results, iteration, output_dir):
     except Exception as e:
         print(f"  ✗ Error extracting measures: {e}")
         return None
-    
+
     # Create lookup for individual measures
     measures_lookup = individual_measures.set_index('ID').to_dict('index')
-    
+
     # Find all relationship pairs and compute correlations
     print(f"  Finding relationship pairs for {len(RELATIONSHIP_TYPES)} types...")
     all_correlations = []
-    
+
     for rel_path in RELATIONSHIP_TYPES:
         try:
             # Find pairs for final three generations only
@@ -277,27 +277,27 @@ def extract_and_analyze_relationships(results, iteration, output_dir):
                 output_format='long',
                 generations=FINAL_GENS
             )
-            
+
             if len(pairs) == 0:
                 continue
-            
+
             print(f"    {rel_path}: {len(pairs):,} pairs", end='')
-            
+
             # Add measures for pairs using lookup
             pairs_with_measures = pairs.copy()
-            
+
             # Add measures for first individual
             for var in variables:
                 pairs_with_measures[f'{var}_1'] = pairs_with_measures['Person_ID'].map(
                     lambda id_val: measures_lookup.get(id_val, {}).get(var, np.nan)
                 )
-            
+
             # Add measures for second individual
             for var in variables:
                 pairs_with_measures[f'{var}_2'] = pairs_with_measures['Relative_ID'].map(
                     lambda id_val: measures_lookup.get(id_val, {}).get(var, np.nan)
                 )
-            
+
             # Add PGS1 and PGS2 for both individuals
             for var in ['PGS1', 'PGS2']:
                 pairs_with_measures[f'{var}_1'] = pairs_with_measures['Person_ID'].map(
@@ -306,35 +306,35 @@ def extract_and_analyze_relationships(results, iteration, output_dir):
                 pairs_with_measures[f'{var}_2'] = pairs_with_measures['Relative_ID'].map(
                     lambda id_val: measures_lookup.get(id_val, {}).get(var, np.nan)
                 )
-            
+
             # Compute correlations for PGS1, PGS2, Y1, Y2
             correlation_vars = ['PGS1', 'PGS2', 'Y1', 'Y2']
             correlations = compute_correlations_for_multiple_variables(
                 pairs_with_measures, correlation_vars, relationship_col='Relationship'
             )
-            
+
             # Add iteration and relationship type info
             correlations['Iteration'] = iteration + 1
             correlations['RelationshipPath'] = rel_path
-            
+
             all_correlations.append(correlations)
             print(f" ✓")
-            
+
         except Exception as e:
             print(f"    {rel_path}: Error - {e}")
             continue
-    
+
     # Combine all correlations
     if len(all_correlations) > 0:
         correlations_df = pd.concat(all_correlations, ignore_index=True)
-        
+
         # Reorder columns
         cols = ['Iteration', 'RelationshipPath', 'Relationship',
                 'Variable', 'N_Pairs', 'Correlation', 'P_Value']
         correlations_df = correlations_df[cols]
-        
+
         return correlations_df
-    
+
     return None
 
 def extract_pgs_correlations(results):
@@ -344,21 +344,21 @@ def extract_pgs_correlations(results):
     PGS1 = TPO1 + TMO1, PGS2 = TPO2 + TMO2
     """
     final_gen = N_GENERATIONS - 1
-    
+
     if 'HISTORY' not in results or final_gen >= len(results['HISTORY']['PHEN']):
         return None, None
-    
+
     phen_df = results['HISTORY']['PHEN'][final_gen]
-    
+
     if phen_df is None or phen_df.empty:
         return None, None
-    
+
     # Get mates data
     if final_gen + 1 < len(results['HISTORY']['MATES']):
         mates_dict = results['HISTORY']['MATES'][final_gen + 1]
         males_df = mates_dict.get('males.PHENDATA')
         females_df = mates_dict.get('females.PHENDATA')
-        
+
         if males_df is not None and females_df is not None:
             # Compute PGS from transmissible components
             males_df = males_df.copy()
@@ -367,7 +367,7 @@ def extract_pgs_correlations(results):
             males_df['PGS2'] = males_df['TPO2'] + males_df['TMO2']
             females_df['PGS1'] = females_df['TPO1'] + females_df['TMO1']
             females_df['PGS2'] = females_df['TPO2'] + females_df['TMO2']
-            
+
             # Merge to get spouse pairs
             merged = pd.merge(
                 males_df[['ID', 'PGS1', 'PGS2', 'Spouse.ID']],
@@ -376,13 +376,13 @@ def extract_pgs_correlations(results):
                 right_on='ID',
                 suffixes=('_male', '_female')
             )
-            
+
             if len(merged) > 1:
                 # Calculate correlations for trait 1 and trait 2
                 cor_pgs1 = np.corrcoef(merged['PGS1_male'], merged['PGS1_female'])[0, 1]
                 cor_pgs2 = np.corrcoef(merged['PGS2_male'], merged['PGS2_female'])[0, 1]
                 return cor_pgs1, cor_pgs2
-    
+
     return None, None
 
 def run_predicted_condition(condition, scratch_base, project_base):
@@ -390,79 +390,79 @@ def run_predicted_condition(condition, scratch_base, project_base):
     Run iterations for the predicted condition assigned to this array task.
     """
     condition_name = condition['name']
-    
+
     # Get task-specific iteration range from environment variables
     task_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', '1'))
     iterations_per_task = int(os.environ.get('ITERATIONS_PER_TASK', '5'))
-    
+
     start_iter = (task_id - 1) * iterations_per_task
     end_iter = min(task_id * iterations_per_task, TOTAL_ITERATIONS)
     n_iterations = end_iter - start_iter
-    
+
     print(f"\n{'#'*70}")
     print(f"# Starting simulations: {condition_name}")
-    print(f"# Condition 02_AElatentAM: bivariate AE model, single-trait latent AM on trait {MATE_ON_TRAIT}")
+    print(f"# Condition 01_DirAM: two independent traits, direct AM on both (rg=re=0)")
     print(f"# Trait 1 (AE): prop_h2_latent1={condition['prop_h2_latent1']:.4f}, vg1={condition['vg1']:.4f}, am11={condition['am11']:.4f}")
-    print(f"# Trait 2 (AE+latentAM): prop_h2_latent2={condition['prop_h2_latent2']:.4f}, vg2={condition['vg2']:.4f}, am22={condition['am22']:.4f}")
+    print(f"# Trait 2 (AFE): prop_h2_latent2={condition['prop_h2_latent2']:.4f}, vg2={condition['vg2']:.4f}, am22={condition['am22']:.4f}, f22={condition['f22']:.4f}, s22={condition['s22']:.4f}")
     print(f"# Mating scheme: MATE_ON_TRAIT={MATE_ON_TRAIT}")
     print(f"# Cross-trait: rg={condition['rg']:.4f}, re={condition['re']:.4f}")
     print(f"# Array Task {task_id}: Running iterations {start_iter+1} to {end_iter}")
     print(f"# ({n_iterations} iterations in this task)")
     print(f"{'#'*70}\n")
-    
+
     # Create condition-specific directories
     scratch_dir = scratch_base / condition_name
     project_dir = project_base / condition_name
     scratch_dir.mkdir(parents=True, exist_ok=True)
     project_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Setup matrices
     matrices = setup_matrices(condition)
-    
+
     # Storage for PGS correlations
     pgs_cor_trait1 = []
     pgs_cor_trait2 = []
     all_correlations = []
-    
+
     # Run iterations for this task
     for iteration in range(start_iter, end_iter):
         try:
             # Run simulation
             results = run_single_iteration(iteration, condition_name, condition, matrices.copy(), scratch_dir)
-            
+
             # Save iteration data to SCRATCH (final 3 generations)
             iter_dir = scratch_dir / f"Iteration_{iteration+1:03d}"
             save_simulation_results(
-                results, 
-                str(iter_dir), 
+                results,
+                str(iter_dir),
                 file_prefix=f"iteration_{iteration+1:03d}",
                 scope=FINAL_GENS
             )
-            
+
             # Extract PGS correlations for mates
             cor1, cor2 = extract_pgs_correlations(results)
             if cor1 is not None:
                 pgs_cor_trait1.append(cor1)
                 pgs_cor_trait2.append(cor2)
                 print(f"  → Mate PGS Correlation - Trait 1: {cor1:.4f}, Trait 2: {cor2:.4f}")
-            
+
             # Extract and analyze all relationship types
             correlations_df = extract_and_analyze_relationships(results, iteration, scratch_dir)
-            
+
             if correlations_df is not None:
                 # Save iteration-specific correlations to SCRATCH
                 corr_file = iter_dir / f"correlations_iteration_{iteration+1:03d}.csv"
                 correlations_df.to_csv(corr_file, index=False)
                 print(f"  ✓ Saved correlations to {corr_file.name}")
-                
+
                 all_correlations.append(correlations_df)
-            
+
         except Exception as e:
             print(f"  ✗ Error in Iteration {iteration+1}: {e}")
             import traceback
             traceback.print_exc()
             continue
-    
+
     # Save summary statistics to PROJECT directory (task-specific)
     # Save mate PGS correlations for both traits
     if pgs_cor_trait1:
@@ -476,17 +476,17 @@ def run_predicted_condition(condition, scratch_base, project_base):
         print(f"\n  ✓ Saved mate correlation summary to {mate_file.name}")
         print(f"    Trait 1 - Mean: {np.mean(pgs_cor_trait1):.4f}, SD: {np.std(pgs_cor_trait1):.4f}")
         print(f"    Trait 2 - Mean: {np.mean(pgs_cor_trait2):.4f}, SD: {np.std(pgs_cor_trait2):.4f}")
-    
+
     # Combine and save relationship correlations (task-specific)
     if all_correlations:
         print(f"\n  Combining relationship correlations for this task...")
         combined_correlations = pd.concat(all_correlations, ignore_index=True)
-        
+
         # Save task-specific combined results
         combined_file = project_dir / f"task_{task_id:02d}_correlations.csv"
         combined_correlations.to_csv(combined_file, index=False)
         print(f"  ✓ Saved task correlations to {combined_file.name}")
-        
+
         # Create summary statistics by relationship type for this task
         print(f"\n  Computing summary statistics by relationship type for this task...")
         summary = combined_correlations.groupby(['RelationshipPath', 'Variable']).agg({
@@ -494,12 +494,12 @@ def run_predicted_condition(condition, scratch_base, project_base):
             'N_Pairs': 'sum',
             'Iteration': 'count'
         }).round(4)
-        
+
         # Save task-specific summary
         summary_file = project_dir / f"task_{task_id:02d}_summary_statistics.csv"
         summary.to_csv(summary_file)
         print(f"  ✓ Saved task summary statistics to {summary_file.name}")
-        
+
         # Print summary for PGS1
         print(f"\n  Summary for PGS1 correlations (this task):")
         pgs1_summary = combined_correlations[combined_correlations['Variable'] == 'PGS1'].groupby('RelationshipPath').agg({
@@ -514,7 +514,7 @@ def main():
     Main execution function.
     """
     print("\n" + "="*70)
-    print("PREDICTED CONDITION SIMULATION SCRIPT - 02_AElatentAM")
+    print("PREDICTED CONDITION SIMULATION SCRIPT - 01_DirAM")
     print("="*70)
     print(f"Scratch base directory: {SCRATCH_BASE}")
     print(f"Project base directory: {PROJECT_BASE}")
@@ -524,18 +524,18 @@ def main():
     print(f"Population size: {POP_SIZE}")
     print(f"Number of generations: {N_GENERATIONS} (saving final 3)")
     print(f"Number of causal variants: {N_CV}")
-    print(f"\nTrait 1 parameters (AE model, 02AElatentAM posterior means):")
+    print(f"\nTrait 1 parameters (AE model, 01DirAM_AE_PGSonly posterior means):")
     print(f"  prop_h2_latent1={CONDITION['prop_h2_latent1']:.4f}, vg1={CONDITION['vg1']:.4f}, am11={CONDITION['am11']:.4f}")
-    print(f"\nTrait 2 parameters (AE + latent AM, 02AElatentAM posterior means):")
-    print(f"  prop_h2_latent2={CONDITION['prop_h2_latent2']:.4f}, vg2={CONDITION['vg2']:.4f}, am22={CONDITION['am22']:.4f}")
-    print(f"\nCross-trait (posterior means): rg={CONDITION['rg']:.4f}, re={CONDITION['re']:.4f}")
+    print(f"\nTrait 2 parameters (AFE model, 01DirAM_AFE_PGSonly posterior means):")
+    print(f"  prop_h2_latent2={CONDITION['prop_h2_latent2']:.4f}, vg2={CONDITION['vg2']:.4f}, am22={CONDITION['am22']:.4f}, f22={CONDITION['f22']:.4f}, s22={CONDITION['s22']:.4f}")
+    print(f"\nCross-trait: rg={CONDITION['rg']:.4f}, re={CONDITION['re']:.4f}")
     print("="*70 + "\n")
-    
+
     # Run the predicted condition
     run_predicted_condition(CONDITION, SCRATCH_BASE, PROJECT_BASE)
-    
+
     print("\n" + "="*70)
-    print(f"SIMULATION COMPLETED - {CONDITION['name']} (02_AElatentAM posterior means, MATE_ON_TRAIT={MATE_ON_TRAIT})")
+    print(f"SIMULATION COMPLETED - {CONDITION['name']} (01_DirAM posterior means, MATE_ON_TRAIT={MATE_ON_TRAIT})")
     print("="*70)
 
 if __name__ == "__main__":

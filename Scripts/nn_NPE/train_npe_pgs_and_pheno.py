@@ -597,6 +597,22 @@ def main():
         print("\n✗ No data available after cleaning. Exiting.")
         return
 
+    # Drop rows with missing values in any of the target parameters — a few
+    # simulation iterations can fail to produce a subset of params, and an
+    # unscaled NaN theta propagates straight into the NPE loss (NaN/Inf loss).
+    has_param_prefix_check = any(f"param_{p}" in df.columns for p in active_param_names)
+    target_cols_check = [f"param_{p}" for p in active_param_names] if has_param_prefix_check else active_param_names
+    target_cols_present = [c for c in target_cols_check if c in df.columns]
+    if target_cols_present:
+        n_before = len(df)
+        df = df.dropna(subset=target_cols_present).copy()
+        n_dropped = n_before - len(df)
+        if n_dropped:
+            print(f"✓ Removed {n_dropped} rows with missing values in target params {target_cols_present}")
+    if len(df) == 0:
+        print("\n✗ No data available after dropping rows with missing target params. Exiting.")
+        return
+
     # ------------------------------------------------------------------
     # 2. Select feature columns
     # ------------------------------------------------------------------

@@ -20,28 +20,28 @@ from postprocessing import save_simulation_results, extract_individual_measures,
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM")
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM_PGSonly")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM_PGSonly")
 
 # Bivariate AE + latent AM condition (02_AElatentAM).
 # Single-trait phenotypic AM on trait 2 only (latent factor, am22);
 # traits are genetically and environmentally correlated (rg, re).
 # AE model: no vertical transmission, no shared family environment.
-# Free parameters (prop_h2_latent1, vg1, re, am22, rg) are posterior means from the
-# NPE fit to the observed data (results_npe_unweighted_02AElatentAM); prop_h2_latent2
-# and vg2 are fixed at the values used to generate the NN training data (trait 2 is
-# 100% latent genetic variance, vg2=0.5 — see DataGeneratingNN_Combined_02AElatentAM.py).
+# Free parameters (prop_h2_latent1, vg1, re, am22, rg) are posterior means from the NPE
+# fit trained on PGS correlations only (no phenotypic correlations), from
+# results_npe_unweighted_02AElatentAM_PGSonly; prop_h2_latent2 and vg2 are fixed at the
+# values used to generate the NN training data (trait 2 is 100% latent, vg2=0.5).
 CONDITION = {
-    'name': 'Predicted_Condition_02AElatentAM',
+    'name': 'Predicted_Condition_02AElatentAM_PGSonly',
     # Trait 1: AE model, latent genetic variance (posterior mean)
-    'prop_h2_latent1': 0.7021,
-    'vg1': 0.2473,
+    'prop_h2_latent1': 0.6012,
+    'vg1': 0.5040,
     'am11': 0.0,      # no direct AM on trait 1
     'f11': 0.0,       # AE model: no vertical transmission
     # Trait 2: fixed (not estimated — updated data-generating script fixes these)
     'prop_h2_latent2': 1.0,
     'vg2': 0.5,
-    'am22': 0.6784,   # latent AM on trait 2 (single-trait mating)
+    'am22': 0.7332,   # latent AM on trait 2 (single-trait mating)
     'f22': 0.0,       # AE model: no vertical transmission
     's11': 0.0,       # no shared family environment (trait 1)
     's12': 0.0,       # no cross-trait family environment
@@ -52,8 +52,8 @@ CONDITION = {
     'f21': 0.0,
     'am12': 0.0,
     'am21': 0.0,
-    'rg': 0.7082,     # genetic correlation
-    're': 0.5613,     # environmental correlation
+    'rg': 0.6039,     # genetic correlation
+    're': 0.2983,     # environmental correlation
 }
 
 # Simulation parameters
@@ -68,7 +68,7 @@ MAF_MAX = 0.5
 # ── Mating scheme ─────────────────────────────────────────────────────────────
 # Set to 1 to mate on trait 1 only, 2 to mate on trait 2 only,
 # or 'both' for bivariate (matrix) AM on both traits simultaneously.
-# Condition 02AElatentAM uses single-trait latent AM on trait 2 only.
+# Condition 02AElatentAM_PGSonly uses single-trait latent AM on trait 2 only.
 MATE_ON_TRAIT = 2
 
 # Relationship types to analyze
@@ -524,9 +524,9 @@ def main():
     print(f"Population size: {POP_SIZE}")
     print(f"Number of generations: {N_GENERATIONS} (saving final 3)")
     print(f"Number of causal variants: {N_CV}")
-    print(f"\nTrait 1 parameters (AE model, 02AElatentAM posterior means):")
+    print(f"\nTrait 1 parameters (AE model, 02AElatentAM_PGSonly posterior means):")
     print(f"  prop_h2_latent1={CONDITION['prop_h2_latent1']:.4f}, vg1={CONDITION['vg1']:.4f}, am11={CONDITION['am11']:.4f}")
-    print(f"\nTrait 2 parameters (AE + latent AM, 02AElatentAM posterior means):")
+    print(f"\nTrait 2 parameters (AE + latent AM, 02AElatentAM_PGSonly posterior means):")
     print(f"  prop_h2_latent2={CONDITION['prop_h2_latent2']:.4f}, vg2={CONDITION['vg2']:.4f}, am22={CONDITION['am22']:.4f}")
     print(f"\nCross-trait (posterior means): rg={CONDITION['rg']:.4f}, re={CONDITION['re']:.4f}")
     print("="*70 + "\n")
