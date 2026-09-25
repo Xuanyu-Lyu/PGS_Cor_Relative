@@ -64,9 +64,7 @@ MAF_MAX = 0.5
 # Ranges follow the condition-04 test notebook; f22 is fixed at 0 (see FIXED_PARAMS).
 # Trait 1 = EA (mating trait), Trait 2 = Migration (latent genetic, no PGS)
 PARAM_BOUNDS = {
-    #'vg1':             [0.4,  0.8],   # EA total genetic variance (fixed below)
-    'vg2':             [0.1,  0.7],   # Migration total genetic variance (restricted < 0.7)
-    'f11':             [0.05, 0.30],  # Within-trait vertical transmission for EA
+    'vg1':             [0.2,  0.8],   # EA total genetic variance (fixed below)
     're':              [0.0,  0.5],   # Environmental correlation between traits
     'am11':            [0.25, 0.75],  # Within-island spousal correlation on EA (trait 1)
     'rg':              [0.01, 0.60],  # Genetic correlation between EA and migration
@@ -75,9 +73,11 @@ PARAM_BOUNDS = {
 
 # Fixed parameters (not sampled) -- matching the condition-04 test setup
 FIXED_PARAMS = {
-    'vg1': 0.45,              # EA total genetic variance (fixed for all conditions)
+    #'vg1': 0.45,              # EA total genetic variance (fixed for all conditions)
+    'vg2': 0.3,
     'prop_h2_latent1': 0.6,   # EA: proportion of h2 that is latent (no PGS)
     'prop_h2_latent2': 1.0,   # Migration: all genetic effects are latent (no observable PGS)
+    'f11':0,
     'f22': 0.0,               # Within-trait VT for migration fixed at 0 (per tests)
     'f12': 0.0,               # No cross-trait vertical transmission
     'f21': 0.0,               # No cross-trait vertical transmission

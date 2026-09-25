@@ -70,6 +70,7 @@ MAF_MAX = 0.5
 # Only am11 and move_p are sampled; vg1, vg2, rg, re are held fixed
 # (see FIXED_PARAMS) to isolate the effect of AM strength and migration rate.
 # Trait 1 = EA (mating trait), Trait 2 = Migration (latent genetic, no PGS)
+# add number of generations
 PARAM_BOUNDS = {
     'vg1':             [0.3,  0.8],   # EA total genetic variance (fixed below)
     #'vg2':             [0.1,  0.7],   # Migration total genetic variance (fixed below)
