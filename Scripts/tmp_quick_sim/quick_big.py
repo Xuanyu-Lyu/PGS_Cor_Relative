@@ -10,10 +10,8 @@ This simulates one condition:
    on latent trait 2 (AM on latent factor 2).
    Cross-trait vertical transmission (f12, f21) is disabled (fixed to 0).
    Shared environment (s11, s12, s21, s22) is fixed at 0.5.
-   Vertical transmission is fixed (f11=0.10, f22=0.10); the free parameters are
-   prop_h2_latent1, vg1, re, am22 and rg (as in condition 02AElatentAM).
-   Trait 2 genetic variance (vg2) is fixed at 0.5; trait 2 remains fully latent
-   (prop_h2_latent2=1.0).
+   Environmental correlation (re) is fixed at 0.1 and trait 2 genetic variance
+   (vg2) is fixed at 0.5; trait 2 remains fully latent (prop_h2_latent2=1.0).
 
 Usage:
     python DataGeneratingNN_Combined_03EnvLatentAM.py
@@ -29,7 +27,7 @@ from pathlib import Path
 
 # Add the SimulationFunctions directory to path
 script_dir = Path(__file__).parent
-simfunc_dir = script_dir.parent / "SimulationFunctions"
+simfunc_dir = Path("/Users/xuly4739/Library/CloudStorage/OneDrive-UCB-O365/Documents/coding/PyProject/PGS_Cor_Relative/Scripts/SimulationFunctions")
 sys.path.insert(0, str(simfunc_dir))
 
 from core_simulation import AssortativeMatingSimulation
@@ -41,39 +39,47 @@ from postprocessing import extract_individual_measures, compute_correlations_for
 # ============================================================================
 
 # Directory setup - using a new directory for this combined approach
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN_Paper/03EnvLatentAM")
+PROJECT_BASE = Path(__file__).parent / "out_big"
 
 # Get SLURM array task ID
 SLURM_TASK_ID = int(os.environ.get('SLURM_ARRAY_TASK_ID', '1'))
 
 # Simulation parameters
 ITERATIONS_PER_CONDITION = 1   # Each condition is unique; one simulation per condition
-CONDITIONS_PER_JOB = 40        # Conditions (simulations) processed per SLURM job
-N_CONDITIONS_TOTAL = 20000     # Total unique conditions (500 jobs × 40 conditions)
-POP_SIZE = 40000
+CONDITIONS_PER_JOB = 100        # Conditions (simulations) processed per SLURM job
+N_CONDITIONS_TOTAL = 1200     # Total unique conditions (500 jobs × 40 conditions)
+POP_SIZE = 2000
 N_GENERATIONS = 20
 FINAL_GENS = [17, 18, 19]  # Final 3 generations to analyze
-N_CV = 1000
+N_CV = 200
 MAF_MIN = 0.01
 MAF_MAX = 0.5
 
 # Parameter bounds for uniform sampling: [min, max]
-# Same five free parameters (and ranges) as condition 02AElatentAM.
 PARAM_BOUNDS = {
-    'prop_h2_latent1': [0.30,  0.9],
+    #'prop_h2_latent1': [0.5,  0.9],
     #'prop_h2_latent2': [0.5,  0.9],
-    'vg1':             [0.2,  0.8],
-    #'vg2':             [0.2,  0.8],  # fixed below
-    're':              [0.0,  0.6],
+    'vg1':             [0.4,  0.8],
+    #'vg2':             [0.4,  0.8],  # fixed below
+    'f11':             [0.05, 0.30],
+    #'f22':             [0.05, 0.30],  # fixed below
+    #'f12':             [0.02, 0.25],
+    #'f21':             [0.02, 0.25],
+    #'s11':             [0.0,  0.4],
+    #'s22':             [0.0,  0.4],
+    #'s12':             [0.0,  0.4],
+    #'s21':             [0.0,  0.4],
+    #'re':              [0.0,  0.4],  # fixed below
     'am22':            [0.25, 0.75],
-    'rg':              [0.20, 0.90],
+    'rg':              [0.30, 0.90],
 }
 
 # Fixed parameters
 FIXED_PARAMS = {
+    'prop_h2_latent1': 0.7,   # Trait 1: 70% of genetic variance is latent (no PGS)
     'prop_h2_latent2': 1.0,   # Trait 2: 100% of genetic variance is latent (no PGS)
     'vg2': 0.5,               # Trait 2 total genetic variance (fixed)
-    'f11': 0.10,              # Trait 1 vertical transmission (fixed; not identified jointly with vg1)
+    're': 0.1,                # Environmental correlation between traits (fixed)
     'f22': 0.10,              # Trait 2 vertical transmission (fixed; poorly identified)
     'am11': 0,
     'am12': 0,
