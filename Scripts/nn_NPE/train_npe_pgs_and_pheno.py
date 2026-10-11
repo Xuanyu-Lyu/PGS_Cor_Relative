@@ -7,46 +7,50 @@ SNPE-C / APT).
 
 Architecture overview
 ---------------------
-The model is split into two specialised components that are trained end-to-end:
+**Default (``--embedding none``):** the standardised correlations are handed
+straight to a **Normalizing Flow** (Neural Spline Flow, via ``sbi``), which
+warps a simple base distribution into the full posterior over the simulation
+parameters. The flow's own conditioner networks supply all the nonlinearity
+the mapping x -> p(theta | x) needs. Trained with the negative log-likelihood
+(NLL) of the flow; no manual L2 penalty unless ``--weight_decay`` is given.
 
-1. **Embedding network** (``PgsPhenoEmbeddingNet``):
-   Your existing ``FeatureAwarePredictorPgsPheno`` architecture, minus its
-   final output layer.  It reads the raw (scaled) correlations, applies the
-   attention mechanism, and compresses the information into a dense
-   ``hidden_sizes[-1]``-dimensional summary vector.
+Why no embedding network: on identical splits and seeds, removing the
+``PgsPhenoEmbeddingNet`` (dropout 0.3) in front of the flow improved the
+held-out NLL by 0.62 +/- 0.03 nats on the condition-02 training data (3 seeds)
+and by 0.35 +/- 0.03 nats on the condition-04 test design (5 seeds), with equal
+or higher R^2 for every parameter, better-calibrated posterior means, smaller
+bias at the edges of the prior, 90% intervals closer to nominal, and ~40% faster
+training. See Scripts/test_04AMmigration/benchmark_npe_architecture.py and
+Scripts/nn_validate/ace_npe/README.md ("Why there is no embedding network").
 
-2. **Normalizing Flow** (Neural Spline Flow, via ``sbi``):
-   Takes the embedding vector as its condition and warps a simple base
-   distribution into the full posterior over your simulation parameters.
-   Trained with the Negative Log-Likelihood (NLL) of the flow.
+**Legacy (``--embedding mlp``):** an embedding network
+(``PgsPhenoEmbeddingNet``: the earlier ``FeatureAwarePredictorPgsPheno`` minus
+its output layer, with attention, LayerNorm and dropout) compresses the
+correlations into a ``hidden_sizes[-1]``-dimensional vector that conditions the
+flow. ``LayerNorm`` rather than ``BatchNorm1d``, because sbi evaluates single
+observations (batch size 1) during sampling. The class is kept so that runs
+trained this way can still be unpickled.
 
-Feature-Specific Regularization
---------------------------------
-Because ``sbi`` owns the training loop, we inject feature-specific L2 penalties
-by subclassing ``SNPE`` and overriding ``_train_epoch``.  Manual L2 terms are
-added to each mini-batch NLL loss exactly as in the original code:
+Regularization
+--------------
+Because ``sbi`` owns the training loop, L2 penalties are injected by
+subclassing ``SNPE`` and overriding ``_train_epoch``:
 
-  - PGS-connected weights of the first embedding layer  →  ``--pgs_weight_decay``
-  - Y1-connected weights of the first embedding layer   →  ``--pheno_weight_decay``
-  - All other parameters                                 →  ``--weight_decay``
-
-BatchNorm → LayerNorm
----------------------
-``BatchNorm1d`` breaks for batch-size 1, which ``sbi`` uses when evaluating a
-single observation during posterior sampling.  The embedding network therefore
-uses ``LayerNorm`` instead, which normalises over the feature dimension and is
-agnostic to batch size.
+  - all network parameters (except the first embedding layer)  ->  ``--weight_decay``
+    (default 0 with ``--embedding none``, 1e-4 with ``--embedding mlp``)
+  - ``--embedding mlp`` only: PGS- / Y1-connected weights of the first
+    embedding layer  ->  ``--pgs_weight_decay`` / ``--pheno_weight_decay``.
+    With ``--embedding none`` there is no such layer and these are ignored.
 
 Usage
 -----
     python train_npe_pgs_and_pheno.py \
-        --data nn_training_05AMmigration_noVT.csv \
-        --output ./results_npe_unweighted_05AMmigration_noVT2_PGSonly \
-        --epochs 500 \
-        --features_file ./results_npe_unweighted_05AMmigration_noVT2_PGSonly/features.txt \
-        --params_file ./results_npe_unweighted_05AMmigration_noVT2_PGSonly/params.txt \
-        --pheno_weight_decay 0 \
-        --pgs_weight_decay 0
+        --data nn_training_02AElatentAM.csv \
+        --output ./results_npe_unweighted_02AElatentAM \
+        --features_file ./run_specs/02AElatentAM/features.txt \
+        --params_file ./run_specs/02AElatentAM/params.txt
+
+All conditions are trained and predicted in one go by ``run_npe_pipeline.py``.
 """
 
 import time
@@ -180,9 +184,11 @@ class SNPEFeatureReg(SNPE):
     SNPE subclass that adds Feature-Specific L2 regularisation to the NLL loss.
 
     The base ``SNPE._train_epoch`` minimises only the Normalizing Flow's NLL.
-    This override appends manual L2 penalties targeting specific columns of
-    the embedding network's first linear layer, mirroring the original
-    ``train_model`` approach from ``train_realistic_pgs_and_pheno_weighted.py``.
+    This override appends manual L2 penalties: a global one on all network
+    parameters and, when a ``PgsPhenoEmbeddingNet`` is present, separate ones
+    on the PGS- and Y1-connected columns of its first linear layer (mirroring
+    ``train_model`` from ``train_realistic_pgs_and_pheno_weighted.py``).
+    Without an embedding network (``nn.Identity``) only the global penalty applies.
 
     Parameters
     ----------
@@ -210,6 +216,7 @@ class SNPEFeatureReg(SNPE):
         pgs_weight_decay: float = 0.0001,
         pheno_weight_decay: float = 0.01,
         global_weight_decay: float = 0.0001,
+        fixed_val_size: int = 0,
         **kwargs,
     ):
         super().__init__(prior=prior, density_estimator=density_estimator, **kwargs)
@@ -218,6 +225,29 @@ class SNPEFeatureReg(SNPE):
         self._pgs_wd = pgs_weight_decay
         self._pheno_wd = pheno_weight_decay
         self._global_wd = global_weight_decay
+        self._fixed_val_size = int(fixed_val_size)
+
+    def get_dataloaders(self, starting_round=0, training_batch_size=200,
+                        validation_fraction=0.1, resume_training=False,
+                        dataloader_kwargs=None):
+        """With ``fixed_val_size`` > 0, validate on the LAST ``fixed_val_size`` appended
+        simulations instead of a random subset. The training script appends its own
+        (group-aware) validation split last, so early stopping never validates on rows
+        that share a simulation with training rows."""
+        if self._fixed_val_size > 0:
+            n = self.get_simulations(starting_round)[0].size(0)
+            self.train_indices = torch.arange(0, n - self._fixed_val_size)
+            self.val_indices = torch.arange(n - self._fixed_val_size, n)
+            resume_training = True   # tells sbi to reuse the indices set above
+        return super().get_dataloaders(starting_round, training_batch_size,
+                                       validation_fraction, resume_training, dataloader_kwargs)
+
+    def _first_embedding_weight(self):
+        """First linear layer weight of a PgsPhenoEmbeddingNet, or None if there is none."""
+        for module in self._neural_net.modules():
+            if isinstance(module, PgsPhenoEmbeddingNet):
+                return module.feature_extractor[0].weight
+        return None
 
     def _train_epoch(self, train_loader, clip_max_norm, loss_args):
         """
@@ -243,27 +273,24 @@ class SNPEFeatureReg(SNPE):
 
             nll_loss = torch.mean(train_losses)
 
-            # ------ Feature-Specific L2 Regularisation ------
+            # ------ L2 Regularisation ------
+            # sbi wraps the embedding in nn.Sequential(z-score layer, embedding),
+            # so the first embedding layer is located by type, not by attribute
+            # path. (Before this fix the attribute lookup always failed and *no*
+            # penalty -- feature-specific or global -- was ever applied.)
             reg_loss = torch.tensor(0.0, device=self._device)
-            try:
-                first_w = self._neural_net.embedding_net.feature_extractor[0].weight
+            first_w = self._first_embedding_weight()
 
+            if first_w is not None:
                 if pgs_end > 0 and self._pgs_wd > 0:
                     reg_loss = reg_loss + self._pgs_wd * first_w[:, :pgs_end].pow(2).sum()
-
                 if self._n_y1 > 0 and self._pheno_wd > 0:
                     reg_loss = reg_loss + self._pheno_wd * first_w[:, pgs_end:y1_end].pow(2).sum()
 
-                if self._global_wd > 0:
-                    for name, param in self._neural_net.named_parameters():
-                        if (
-                            name != "embedding_net.feature_extractor.0.weight"
-                            and param.requires_grad
-                        ):
-                            reg_loss = reg_loss + self._global_wd * param.pow(2).sum()
-            except (AttributeError, IndexError):
-                # Architecture doesn't expose the expected path – skip feature-reg.
-                pass
+            if self._global_wd > 0:
+                for param in self._neural_net.parameters():
+                    if param.requires_grad and param is not first_w:
+                        reg_loss = reg_loss + self._global_wd * param.pow(2).sum()
 
             total_loss = nll_loss + reg_loss
             total_loss.backward()
@@ -362,6 +389,15 @@ def engineer_features(df, feature_cols, interaction_degree=1):
 # NPE EVALUATION  (replaces evaluate_model + plot_predictions)
 # ============================================================================
 
+def set_eval_mode(posterior):
+    """Put the posterior's density estimator in eval mode (dropout off)."""
+    for attr in ("posterior_estimator", "_neural_net"):
+        net = getattr(posterior, attr, None)
+        if isinstance(net, nn.Module):
+            net.eval()
+            return
+
+
 def evaluate_npe(posterior, X_test, y_test, param_names, output_dir, n_posterior_samples=500):
     """
     Evaluate the trained NPE on the held-out test set.
@@ -395,8 +431,8 @@ def evaluate_npe(posterior, X_test, y_test, param_names, output_dir, n_posterior
     pred_stds = []
 
     # DirectPosterior is not a nn.Module; set the underlying density estimator to eval mode
-    if hasattr(posterior, '_neural_net'):
-        posterior._neural_net.eval()
+    # (sbi >= 0.23 stores it as ``posterior_estimator``; older versions as ``_neural_net``)
+    set_eval_mode(posterior)
     for i in range(n_test):
         x_obs = torch.FloatTensor(X_test[i]).unsqueeze(0)
         with torch.no_grad():
@@ -516,18 +552,22 @@ def main():
                         help="Training mini-batch size")
     parser.add_argument("--lr", type=float, default=5e-4,
                         help="Learning rate for Adam optimiser")
-    parser.add_argument("--weight_decay", type=float, default=0.0001,
-                        help="Global L2 penalty for non-first-layer parameters")
-    parser.add_argument("--pgs_weight_decay", type=float, default=0.0001,
-                        help="L2 penalty for PGS-connected first-layer weights")
-    parser.add_argument("--pheno_weight_decay", type=float, default=0.01,
-                        help="L2 penalty for Y1-connected first-layer weights "
+    parser.add_argument("--embedding", type=str, default="none", choices=["none", "mlp"],
+                        help="'none' (default): standardised features go straight into the flow. "
+                             "'mlp': legacy PgsPhenoEmbeddingNet in front of the flow.")
+    parser.add_argument("--weight_decay", type=float, default=0.0,
+                        help="Global L2 penalty on all network parameters (default 0; "
+                             "earlier runs recorded 1e-4 but, because of a bug, never applied it)")
+    parser.add_argument("--pgs_weight_decay", type=float, default=0.0,
+                        help="--embedding mlp only: L2 penalty for PGS-connected first-layer weights")
+    parser.add_argument("--pheno_weight_decay", type=float, default=0.0,
+                        help="--embedding mlp only: L2 penalty for Y1-connected first-layer weights "
                              "(set higher than pgs_weight_decay to downweight Y1 influence)")
     parser.add_argument("--hidden_sizes", type=int, nargs="+",
                         default=[256, 256, 128, 128],
-                        help="Embedding network hidden layer widths (4 values)")
+                        help="--embedding mlp only: embedding network hidden layer widths (4 values)")
     parser.add_argument("--dropout", type=float, default=0.3,
-                        help="Dropout rate in embedding network")
+                        help="--embedding mlp only: dropout rate in the embedding network")
     parser.add_argument("--flow_type", type=str, default="nsf",
                         choices=["nsf", "maf", "maf_rqs", "mdn"],
                         help="Normalizing flow architecture")
@@ -553,6 +593,14 @@ def main():
     parser.add_argument("--n_posterior_samples", type=int, default=500,
                         help="Posterior samples per test observation for evaluation")
     parser.add_argument("--device", type=str, default="auto")
+    parser.add_argument("--group_col", type=str, default=None,
+                        help="Column identifying rows that come from the same simulation "
+                             "(e.g. 'Condition' when several generations are read out of one "
+                             "run). Train/val/test splits keep each group together.")
+    parser.add_argument("--count_param", type=str, default=None,
+                        help="Name of an integer-valued parameter (e.g. 'n_gen'). Its posterior "
+                             "is a categorical distribution (classifier) and the other "
+                             "parameters get a flow conditioned on it (see npe_count.py).")
 
     args = parser.parse_args()
 
@@ -661,18 +709,33 @@ def main():
     # 5. Train/val/test split
     # ------------------------------------------------------------------
     n_samples = len(df)
-    n_train = int(n_samples * 0.70)
-    n_val   = int(n_samples * 0.15)
-
     rng = np.random.default_rng(42)
-    indices = rng.permutation(n_samples)
 
-    X_train = X_engineered[indices[:n_train]]
-    y_train = y[indices[:n_train]]
-    X_val   = X_engineered[indices[n_train:n_train + n_val]]
-    y_val   = y[indices[n_train:n_train + n_val]]
-    X_test  = X_engineered[indices[n_train + n_val:]]
-    y_test  = y[indices[n_train + n_val:]]
+    if args.group_col:
+        # Group-aware split: all rows of one simulation land in the same split.
+        if args.group_col not in df.columns:
+            print(f"\n✗ ERROR: --group_col '{args.group_col}' not found in data")
+            return
+        groups = df[args.group_col].to_numpy()
+        uniq = rng.permutation(pd.unique(groups))
+        n_tr_g, n_va_g = int(len(uniq) * 0.70), int(len(uniq) * 0.15)
+        split_of = {g: 0 for g in uniq[:n_tr_g]}
+        split_of.update({g: 1 for g in uniq[n_tr_g:n_tr_g + n_va_g]})
+        split_of.update({g: 2 for g in uniq[n_tr_g + n_va_g:]})
+        lab = np.array([split_of[g] for g in groups])
+        idx_tr, idx_va, idx_te = (np.where(lab == s)[0] for s in (0, 1, 2))
+        idx_tr, idx_va, idx_te = rng.permutation(idx_tr), rng.permutation(idx_va), rng.permutation(idx_te)
+        print(f"\nGroup-aware split on '{args.group_col}': {n_tr_g} / {n_va_g} / "
+              f"{len(uniq) - n_tr_g - n_va_g} groups (train / val / test)")
+    else:
+        n_train = int(n_samples * 0.70)
+        n_val   = int(n_samples * 0.15)
+        indices = rng.permutation(n_samples)
+        idx_tr, idx_va, idx_te = indices[:n_train], indices[n_train:n_train + n_val], indices[n_train + n_val:]
+
+    X_train, y_train = X_engineered[idx_tr], y[idx_tr]
+    X_val,   y_val   = X_engineered[idx_va], y[idx_va]
+    X_test,  y_test  = X_engineered[idx_te], y[idx_te]
 
     print(f"\nData split: {len(X_train)} train | {len(X_val)} val | {len(X_test)} test")
 
@@ -689,24 +752,53 @@ def main():
         joblib.dump(poly_transformer, output_dir / "poly_transformer.pkl")
 
     # ------------------------------------------------------------------
+    # 6b. Count parameter (optional): categorical posterior + flow given the count
+    # ------------------------------------------------------------------
+    count_values = None
+    if args.count_param:
+        if args.count_param not in active_param_names:
+            print(f"\n✗ ERROR: --count_param '{args.count_param}' is not in the parameter list")
+            return
+        ci = active_param_names.index(args.count_param)
+        if not np.allclose(y[:, ci], np.rint(y[:, ci])):
+            print(f"\n✗ ERROR: --count_param '{args.count_param}' has non-integer values")
+            return
+        count_values = np.arange(int(np.rint(y[:, ci]).min()), int(np.rint(y[:, ci]).max()) + 1)
+        n_counts = len(count_values)
+        to_class = lambda v: np.rint(v).astype(int) - int(count_values[0])
+        onehot = lambda v: np.eye(n_counts)[to_class(v)]
+        flow_cols = [i for i in range(len(active_param_names)) if i != ci]
+        Xf_train = np.hstack([X_train_s, onehot(y_train[:, ci])])
+        Xf_val = np.hstack([X_val_s, onehot(y_val[:, ci])])
+        print(f"\nCount parameter '{args.count_param}': values {count_values.tolist()} "
+              f"(categorical posterior; the flow is conditioned on its one-hot encoding)")
+    else:
+        flow_cols = list(range(len(active_param_names)))
+        Xf_train, Xf_val = X_train_s, X_val_s
+    flow_param_names = [active_param_names[i] for i in flow_cols]
+
+    # ------------------------------------------------------------------
     # 7. Define BoxUniform prior from training data range (+buffer)
     # ------------------------------------------------------------------
     print("\n" + "=" * 70)
     print("PRIOR DEFINITION (BoxUniform from training data range)")
     print("=" * 70)
 
-    y_min = y_train.min(axis=0)
-    y_max = y_train.max(axis=0)
-    buffer = args.prior_buffer * (y_max - y_min)
-    prior_lower = torch.tensor(y_min - buffer, dtype=torch.float32)
-    prior_upper = torch.tensor(y_max + buffer, dtype=torch.float32)
+    prior_lower = prior_upper = torch.zeros(0)
+    if flow_cols:
+        y_min = y_train[:, flow_cols].min(axis=0)
+        y_max = y_train[:, flow_cols].max(axis=0)
+        buffer = args.prior_buffer * (y_max - y_min)
+        prior_lower = torch.tensor(y_min - buffer, dtype=torch.float32)
+        prior_upper = torch.tensor(y_max + buffer, dtype=torch.float32)
 
-    print(f"\n{'Parameter':<22} {'Lower':<12} {'Upper':<12}")
-    print("-" * 50)
-    for p, lo, hi in zip(active_param_names, prior_lower, prior_upper):
-        print(f"  {p:<20} {lo.item():+.4f}      {hi.item():+.4f}")
-
-    prior = BoxUniform(low=prior_lower, high=prior_upper, device=str(device))
+        print(f"\n{'Parameter':<22} {'Lower':<12} {'Upper':<12}")
+        print("-" * 50)
+        for p, lo, hi in zip(flow_param_names, prior_lower, prior_upper):
+            print(f"  {p:<20} {lo.item():+.4f}      {hi.item():+.4f}")
+        prior = BoxUniform(low=prior_lower, high=prior_upper, device=str(device))
+    if count_values is not None:
+        print(f"  {args.count_param:<20} uniform over {count_values.tolist()}")
 
     # ------------------------------------------------------------------
     # 8. Build embedding network and density estimator
@@ -715,85 +807,114 @@ def main():
     print("MODEL ARCHITECTURE")
     print("=" * 70)
 
-    n_features = X_engineered.shape[1]
-    embedding_net = PgsPhenoEmbeddingNet(
-        n_features=n_features,
-        hidden_sizes=args.hidden_sizes,
-        dropout_rate=args.dropout,
-    )
+    n_features = Xf_train.shape[1]   # correlation features (+ one-hot count, if any)
+    if not flow_cols:
+        print("\nOnly the count parameter is estimated: no flow is trained.")
+    elif args.embedding == "mlp":
+        embedding_net = PgsPhenoEmbeddingNet(
+            n_features=n_features,
+            hidden_sizes=args.hidden_sizes,
+            dropout_rate=args.dropout,
+        )
+        print(f"\nEmbedding network (legacy, --embedding mlp):")
+        print(f"  Input features : {n_features}  ({len(pgs1_cols)} PGS + {len(y1_cols)} Y1)")
+        print(f"  Hidden layers  : {args.hidden_sizes}")
+        print(f"  Output dim     : {embedding_net.output_dim}  (→ Normalizing Flow condition)")
+        total_emb = sum(p.numel() for p in embedding_net.parameters())
+        print(f"  Parameters     : {total_emb:,}")
+    else:
+        embedding_net = nn.Identity()
+        print(f"\nConditioning input (no embedding network):")
+        print(f"  {n_features} standardised features ({len(pgs1_cols)} PGS + {len(y1_cols)} Y1) "
+              f"go straight into the flow")
+        if args.pgs_weight_decay > 0 or args.pheno_weight_decay > 0:
+            print("  ⚠ --pgs_weight_decay / --pheno_weight_decay need --embedding mlp; ignored.")
 
-    print(f"\nEmbedding network:")
-    print(f"  Input features : {n_features}  ({len(pgs1_cols)} PGS + {len(y1_cols)} Y1)")
-    print(f"  Hidden layers  : {args.hidden_sizes}")
-    print(f"  Output dim     : {embedding_net.output_dim}  (→ Normalizing Flow condition)")
-    total_emb = sum(p.numel() for p in embedding_net.parameters())
-    print(f"  Parameters     : {total_emb:,}")
+    if flow_cols:
+        density_estimator_fn = posterior_nn(
+            model=args.flow_type,
+            embedding_net=embedding_net,
+            hidden_features=args.flow_hidden,
+            num_transforms=args.flow_transforms,
+            z_score_theta="independent",  # sbi z-scores theta internally
+            z_score_x="independent",      # z-score the flow's conditioning input (prevents NSF spline instability)
+        )
 
-    density_estimator_fn = posterior_nn(
-        model=args.flow_type,
-        embedding_net=embedding_net,
-        hidden_features=args.flow_hidden,
-        num_transforms=args.flow_transforms,
-        z_score_theta="independent",  # sbi z-scores theta internally
-        z_score_x="independent",      # normalize embedding output before the flow (prevents NSF spline instability)
-    )
-
-    print(f"\nNormalizing Flow:")
-    print(f"  Type           : {args.flow_type.upper()}")
-    print(f"  Hidden features: {args.flow_hidden}")
-    print(f"  Transforms     : {args.flow_transforms}")
+        print(f"\nNormalizing Flow over {flow_param_names}:")
+        print(f"  Type           : {args.flow_type.upper()}")
+        print(f"  Hidden features: {args.flow_hidden}")
+        print(f"  Transforms     : {args.flow_transforms}")
 
     # ------------------------------------------------------------------
     # 9. Train SNPE with feature-specific regularisation
     # ------------------------------------------------------------------
     print("\n" + "=" * 70)
-    print("TRAINING (SNPE + Feature-Specific Regularization)")
+    print("TRAINING (SNPE)")
     print("=" * 70)
-    print(f"\n  Global L2 (non-first-layer):           {args.weight_decay}")
-    print(f"  PGS first-layer L2:                    {args.pgs_weight_decay}")
-    print(f"  Y1 phenotypic first-layer L2:          {args.pheno_weight_decay}")
+    print(f"\n  Global L2:                             {args.weight_decay}")
+    if args.embedding == "mlp":
+        print(f"  PGS first-layer L2:                    {args.pgs_weight_decay}")
+        print(f"  Y1 phenotypic first-layer L2:          {args.pheno_weight_decay}")
     print(f"  n_pgs_features: {len(pgs1_cols)}  |  n_y1_features: {len(y1_cols)}")
 
-    inference = SNPEFeatureReg(
-        prior=prior,
-        density_estimator=density_estimator_fn,
-        device=str(device),
-        n_pgs=len(pgs1_cols),
-        n_y1=len(y1_cols),
-        pgs_weight_decay=args.pgs_weight_decay,
-        pheno_weight_decay=args.pheno_weight_decay,
-        global_weight_decay=args.weight_decay,
-    )
+    flow_posterior, density_estimator = None, None
+    if flow_cols:
+        inference = SNPEFeatureReg(
+            prior=prior,
+            density_estimator=density_estimator_fn,
+            device=str(device),
+            n_pgs=len(pgs1_cols),
+            n_y1=len(y1_cols),
+            pgs_weight_decay=args.pgs_weight_decay,
+            pheno_weight_decay=args.pheno_weight_decay,
+            global_weight_decay=args.weight_decay,
+            # group-aware data: validate on our own validation split (appended last)
+            fixed_val_size=len(Xf_val) if args.group_col else 0,
+        )
 
-    # Combine train + val for sbi (it manages its own validation split)
-    X_all = np.vstack([X_train_s, X_val_s])
-    y_all = np.vstack([y_train, y_val])
+        # Combine train + val for sbi; the validation rows are appended last
+        X_all = np.vstack([Xf_train, Xf_val])
+        y_all = np.vstack([y_train, y_val])[:, flow_cols]
 
-    inference.append_simulations(
-        theta=torch.tensor(y_all, dtype=torch.float32),
-        x=torch.tensor(X_all, dtype=torch.float32),
-    )
+        inference.append_simulations(
+            theta=torch.tensor(y_all, dtype=torch.float32),
+            x=torch.tensor(X_all, dtype=torch.float32),
+        )
 
-    density_estimator = inference.train(
-        training_batch_size=args.batch_size,
-        learning_rate=args.lr,
-        max_num_epochs=args.epochs,
-        stop_after_epochs=args.stop_after_epochs,
-        show_train_summary=True,
-        validation_fraction=len(X_val_s) / len(X_all),
-    )
+        density_estimator = inference.train(
+            training_batch_size=args.batch_size,
+            learning_rate=args.lr,
+            max_num_epochs=args.epochs,
+            stop_after_epochs=args.stop_after_epochs,
+            show_train_summary=True,
+            validation_fraction=len(Xf_val) / len(X_all),
+        )
+        flow_posterior = inference.build_posterior(density_estimator)
 
     # ------------------------------------------------------------------
     # 10. Build and save posterior
     # ------------------------------------------------------------------
-    posterior = inference.build_posterior(density_estimator)
+    clf_state = None
+    if count_values is not None:
+        from npe_count import MixedPosterior, train_count_classifier
+        clf, temperature = train_count_classifier(
+            X_train_s, to_class(y_train[:, ci]), X_val_s, to_class(y_val[:, ci]), n_counts)
+        print(f"\n✓ Trained count classifier for '{args.count_param}' "
+              f"(softmax temperature {temperature:.2f})")
+        posterior = MixedPosterior(flow_posterior, clf, temperature, count_values,
+                                   active_param_names, args.count_param)
+        clf_state = clf.state_dict()
+    else:
+        posterior = flow_posterior
 
     print("\n✓ Posterior built successfully.")
 
     # Save density estimator weights + architecture so it can be reconstructed
     torch.save(
         {
-            "density_estimator_state_dict": density_estimator.state_dict(),
+            "density_estimator_state_dict": (density_estimator.state_dict()
+                                             if density_estimator is not None else None),
+            "count_classifier_state_dict": clf_state,
             "prior_lower": prior_lower,
             "prior_upper": prior_upper,
         },
@@ -825,25 +946,32 @@ def main():
         "n_original_pgs1_features": len(pgs1_cols),
         "n_original_y1_features": len(y1_cols),
         "n_original_features": len(combined_feature_cols),
-        "n_engineered_features": n_features,
+        "n_engineered_features": X_engineered.shape[1],
         "interaction_degree": args.interaction_degree,
-        "hidden_sizes": args.hidden_sizes,
-        "dropout_rate": args.dropout,
+        "embedding": args.embedding,
+        "hidden_sizes": args.hidden_sizes if args.embedding == "mlp" else None,
+        "dropout_rate": args.dropout if args.embedding == "mlp" else None,
         "param_names": active_param_names,
         "original_features": combined_feature_cols,
         "pgs1_features": pgs1_cols,
         "y1_features": y1_cols,
-        "regularization": "feature_specific",
+        "regularization": "feature_specific" if args.embedding == "mlp" else "global_only",
         "weight_decay": args.weight_decay,
-        "pgs_weight_decay": args.pgs_weight_decay,
-        "pheno_weight_decay": args.pheno_weight_decay,
+        "pgs_weight_decay": args.pgs_weight_decay if args.embedding == "mlp" else None,
+        "pheno_weight_decay": args.pheno_weight_decay if args.embedding == "mlp" else None,
+        "prior_params": flow_param_names,     # parameters prior_lower/upper refer to
         "prior_lower": prior_lower.tolist(),
         "prior_upper": prior_upper.tolist(),
+        "count_param": args.count_param,
+        "count_values": count_values.tolist() if count_values is not None else None,
+        "group_col": args.group_col,
         "note": (
+            "NPE (SNPE-C) model: standardised correlations feed a Neural Spline Flow "
+            "directly (no embedding network)."
+            if args.embedding == "none" else
             "NPE (SNPE-C) model: PgsPhenoEmbeddingNet (LayerNorm, no output layer) "
-            "feeds a Neural Spline Flow.  Feature-Specific Regularization is applied "
-            "by overriding SNPE._train_epoch with manual L2 penalties."
-        ),
+            "feeds a Neural Spline Flow."
+        ) + " L2 penalties (if any) are added by overriding SNPE._train_epoch.",
     }
 
     with open(output_dir / "config.json", "w") as f:

@@ -31,17 +31,21 @@ PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predic
 # NPE fit to the observed data (results_npe_unweighted_02AElatentAM); prop_h2_latent2
 # and vg2 are fixed at the values used to generate the NN training data (trait 2 is
 # 100% latent genetic variance, vg2=0.5 — see DataGeneratingNN_Combined_02AElatentAM.py).
+# Posterior means updated 2026-10-08: NPE retrained without the embedding network
+# (nn_NPE/run_npe_pipeline.py). Previous values: nn_NPE/results_archive/
+# before_noembedding_20261007/posterior_mean_changes.csv. Caveat: the observed
+# correlations lie outside the simulated distribution, so these are extrapolations.
 CONDITION = {
     'name': 'Predicted_Condition_02AElatentAM',
     # Trait 1: AE model, latent genetic variance (posterior mean)
-    'prop_h2_latent1': 0.7021,
-    'vg1': 0.2473,
+    'prop_h2_latent1': 0.7659,
+    'vg1': 0.1158,   # posterior mean; outside the simulated range [0.2, 0.8]
     'am11': 0.0,      # no direct AM on trait 1
     'f11': 0.0,       # AE model: no vertical transmission
     # Trait 2: fixed (not estimated — updated data-generating script fixes these)
     'prop_h2_latent2': 1.0,
     'vg2': 0.5,
-    'am22': 0.6784,   # latent AM on trait 2 (single-trait mating)
+    'am22': 0.7466,   # latent AM on trait 2 (single-trait mating)
     'f22': 0.0,       # AE model: no vertical transmission
     's11': 0.0,       # no shared family environment (trait 1)
     's12': 0.0,       # no cross-trait family environment
@@ -52,8 +56,8 @@ CONDITION = {
     'f21': 0.0,
     'am12': 0.0,
     'am21': 0.0,
-    'rg': 0.7082,     # genetic correlation
-    're': 0.5613,     # environmental correlation
+    'rg': 0.6781,     # genetic correlation
+    're': 0.6779,   # posterior mean; outside the simulated range [0, 0.6]
 }
 
 # Simulation parameters

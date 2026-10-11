@@ -40,11 +40,15 @@ PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predic
 # island migration driven by trait 2.  Only am11 and move_p were free in the
 # PGS-only NPE fit (posterior means below); everything else is fixed at the
 # training-data values from DataGeneratingNN_Combined_05AMmigration_noVT.py.
+# Posterior means updated 2026-10-08: NPE retrained without the embedding network
+# (nn_NPE/run_npe_pipeline.py). Previous values: nn_NPE/results_archive/
+# before_noembedding_20261007/posterior_mean_changes.csv. Caveat: the observed
+# correlations lie outside the simulated distribution, so these are extrapolations.
 CONDITION = {
     'name': 'Predicted_Condition_05AMmigration_noVT2_PGSonly',
     # Free parameters (NPE posterior means, PGS-only fit)
-    'am11':   0.3032,  # within-island spousal correlation on EA (trait 1)
-    'move_p': 0.1462,  # fraction migrating per generation
+    'am11':   0.3045,  # within-island spousal correlation on EA (trait 1)
+    'move_p': 0.1316,  # fraction migrating per generation
     # Trait 1 (EA): fixed
     'prop_h2_latent1': 0.6,
     'vg1': 0.6,

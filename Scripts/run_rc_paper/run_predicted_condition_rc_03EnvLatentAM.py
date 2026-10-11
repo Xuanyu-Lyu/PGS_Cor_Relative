@@ -31,18 +31,22 @@ PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predic
 # the observed data (results_npe_unweighted_03EnvLatentAM); all other parameters are
 # fixed at the values used to generate the NN training data (see FIXED_PARAMS in
 # DataGeneratingNN_Combined_03EnvLatentAM.py).
+# Posterior means updated 2026-10-08: NPE retrained without the embedding network
+# (nn_NPE/run_npe_pipeline.py). Previous values: nn_NPE/results_archive/
+# before_noembedding_20261007/posterior_mean_changes.csv. Caveat: the observed
+# correlations lie outside the simulated distribution, so these are extrapolations.
 CONDITION = {
     'name': 'Predicted_Condition_03EnvLatentAM',
     # Trait 1 (posterior means for vg1, f11; prop_h2_latent1 fixed)
     'prop_h2_latent1': 0.7,   # fixed
-    'vg1': 0.4523,
+    'vg1': 0.5927,
     'am11': 0.0,      # no direct AM on trait 1
-    'f11': 0.0575,
+    'f11': -0.0293,   # posterior mean; outside the simulated range [0.05, 0.3]
     # Trait 2: latent AM (posterior means for am22, f22; prop_h2_latent2, vg2 fixed)
     'prop_h2_latent2': 1.0,   # fixed
     'vg2': 0.5,       # fixed
-    'am22': 0.6225,   # latent AM on trait 2 (single-trait mating)
-    'f22': 0.1151,
+    'am22': 0.7006,   # latent AM on trait 2 (single-trait mating)
+    'f22': 0.0535,
     's11': 0.5,       # fixed shared family environment
     's12': 0.5,       # fixed cross-trait shared environment
     's21': 0.5,       # fixed cross-trait shared environment
@@ -52,7 +56,7 @@ CONDITION = {
     'f21': 0.0,       # fixed: no cross-trait vertical transmission
     'am12': 0.0,
     'am21': 0.0,
-    'rg': 0.8512,     # genetic correlation (posterior mean)
+    'rg': 0.9060,   # posterior mean; outside the simulated range [0.3, 0.9]
     're': 0.1,        # fixed environmental correlation
 }
 

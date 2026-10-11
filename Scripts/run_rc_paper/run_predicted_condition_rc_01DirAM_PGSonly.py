@@ -32,18 +32,22 @@ PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predic
 # results_npe_unweighted_01DirAM_AFE_PGSonly; vg2 and s22 are fixed at the values used
 # to generate the NN training data (see DataGeneratingNN_Combined_01DirAM.py FIXED_PARAMS),
 # not estimated by the NPE.
+# Posterior means updated 2026-10-08: NPE retrained without the embedding network
+# (nn_NPE/run_npe_pipeline.py). Previous values: nn_NPE/results_archive/
+# before_noembedding_20261007/posterior_mean_changes.csv. Caveat: the observed
+# correlations lie outside the simulated distribution, so these are extrapolations.
 CONDITION = {
     'name': 'Predicted_Condition_01DirAM_PGSonly',
     # Trait 1: AE model (posterior means, results_npe_unweighted_01DirAM_AE_PGSonly)
-    'prop_h2_latent1': 0.8846,
-    'vg1': 0.5141,
-    'am11': 0.7220,
+    'prop_h2_latent1': 0.8841,
+    'vg1': 0.5642,
+    'am11': 0.7280,
     'f11': 0.0,       # AE model: no vertical transmission
     # Trait 2: AFE model (prop_h2_latent2/am22/f22 posterior means, results_npe_unweighted_01DirAM_AFE_PGSonly)
-    'prop_h2_latent2': 0.8706,
+    'prop_h2_latent2': 0.8796,
     'vg2': 0.5,       # fixed (not estimated — see DataGeneratingNN_Combined_01DirAM.py)
-    'am22': 0.6627,
-    'f22': 0.0992,
+    'am22': 0.7203,
+    'f22': 0.0416,
     's22': 0.1,       # fixed (not estimated — see DataGeneratingNN_Combined_01DirAM.py)
     's11': 0.0,       # no shared family environment (trait 1)
     's12': 0.0,       # no cross-trait family environment

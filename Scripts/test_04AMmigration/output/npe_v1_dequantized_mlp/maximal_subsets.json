@@ -1,0 +1,16 @@
+{
+  "jac_all": [
+    "move_p+vg1+prop_h2_latent1",
+    "n_gen+prop_h2_latent1"
+  ],
+  "ridge_all": [
+    "move_p+n_gen+vg1+prop_h2_latent1"
+  ],
+  "npe_all": [
+    "move_p+n_gen+vg1+prop_h2_latent1"
+  ],
+  "all_methods": [
+    "move_p+vg1+prop_h2_latent1",
+    "n_gen+prop_h2_latent1"
+  ]
+}

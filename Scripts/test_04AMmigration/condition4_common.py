@@ -1,23 +1,27 @@
-﻿"""
+"""
 condition4_common.py
 ====================
-Shared helpers for the condition-04 (AM + island migration) test scripts.
+Shared helpers for the condition-04 (EA-driven island migration) test scripts.
 
-This module is imported by the two *independent* test drivers:
+Model (overhauled condition 04)
+-------------------------------
+    EA (trait 1)  = additive genetics (PGS part + latent part) + unique environment
+    No assortative mating (random mating within islands), no vertical transmission,
+    no shared environment.
+    Individuals migrate between ``n_islands`` islands sorted directly on their EA
+    phenotype (Y1): each generation a fraction ``move_p`` of each sex on each island
+    is pooled, sorted by Y1 and redistributed so that high-EA movers end up on the
+    high-numbered islands.
+    The simulation starts from a random founder population and runs ``n_gen``
+    generations (3..10) in total; ``n_gen`` is itself a parameter to estimate.
 
-    test_equilibrium.py       -- do the variance components reach equilibrium?
-    test_identifiability.py   -- which parameters are identifiable from PGS
-                                 correlations, and which should be fixed?
+The engine is bivariate, so trait 2 is carried along as an inert dummy
+(vg2 = 0.5, rg = 0, re = 0, fully latent); it drives nothing.
 
-It reuses the production simulation engine (IslandMigrationSimulation) and
-the relationship/measure extraction utilities under
-``Scripts/SimulationFunctions``. Everything here is sized to run quickly on a
-laptop (small population, few CVs, few generations).
+Estimable parameters: move_p, n_gen, vg1, prop_h2_latent1.
 
-The model wiring mirrors
-``Scripts/run_rc_paper/DataGeneratingNN_Combined_04AMmigration.py``:
-    Trait 1 = EA        (within-island assortative-mating trait; am11)
-    Trait 2 = Migration (fully latent, prop_h2_latent2 = 1; drives migration)
+It reuses the production simulation engine (IslandMigrationSimulation) and the
+relationship/measure extraction utilities under ``Scripts/SimulationFunctions``.
 """
 
 from __future__ import annotations
@@ -40,70 +44,56 @@ from relationship_finder import find_relationship_pairs         # noqa: E402
 from postprocessing import extract_individual_measures          # noqa: E402
 
 
+OUTPUT_DIR = Path(__file__).resolve().parent / "output"
+
+
 # ============================================================================
 # CONDITION-04 PARAMETER SPACE
 # ============================================================================
 
-# Estimable / sampled parameters (from DataGeneratingNN_Combined_04AMmigration.py)
+# Estimable / sampled parameters
 PARAM_BOUNDS = {
-    "vg2":    (0.10, 0.90),   # migration-trait total genetic variance
-    "f11":    (0.05, 0.30),   # within-trait vertical transmission, EA
-    "f22":    (0.05, 0.30),   # within-trait vertical transmission, migration
-    "re":     (0.00, 0.50),   # environmental correlation between traits
-    "am11":   (0.25, 0.75),   # within-island spousal correlation on EA
-    "rg":     (0.01, 0.60),   # genetic correlation EA <-> migration (widened range)
-    "move_p": (0.01, 0.30),   # fraction migrating per island per generation
+    "move_p":          (0.01, 0.70),  # fraction of each sex per island that migrates per generation
+    "n_gen":           (3, 10),       # total generations since the random founders (integer)
+    "vg1":             (0.20, 0.80),  # EA total genetic variance
+    "prop_h2_latent1": (0.30, 0.90),  # share of EA genetic variance NOT captured by the PGS
+}
+PARAMS = list(PARAM_BOUNDS)
+INT_PARAMS = {"n_gen"}
+
+# Values used when a parameter is held fixed
+BASELINE_PARAMS = {
+    "move_p": 0.40,
+    "n_gen": 6,
+    "vg1": 0.50,
+    "prop_h2_latent1": 0.60,
 }
 
-# Parameters currently held fixed in the production condition.
-FIXED_PARAMS = {
-    "vg1": 0.45,             # EA total genetic variance
-    "prop_h2_latent1": 0.6,  # EA: proportion of h2 that is latent (no PGS)
-    "prop_h2_latent2": 1.0,  # migration: entirely latent (no observable PGS)
+# Structural constants (never estimated)
+FIXED_STRUCTURE = {
+    "vg2": 0.5,              # dummy trait 2
+    "prop_h2_latent2": 1.0,
+    "rg": 0.0,
+    "re": 0.0,
 }
 
-# Exploratory ranges for the otherwise-fixed parameters, used only when the
-# equilibrium sweep is asked to vary them.
-EXPLORE_BOUNDS = {
-    "vg1": (0.20, 0.80),
-    "prop_h2_latent1": (0.20, 0.90),
-}
-
-# Baseline = midpoint of every sampled range, plus the fixed values, with a
-# couple of explicit overrides (f11 = 0.10; vg2 = 0.50).
-BASELINE_PARAMS = {**FIXED_PARAMS,
-                   **{k: 0.5 * (lo + hi) for k, (lo, hi) in PARAM_BOUNDS.items()},
-                   "f11": 0.10, "vg2": 0.50}
-
-# Relationship types used as PGS-correlation features. This is a subset of the
-# full production list, chosen so that pairs are still plentiful at small N.
-DEFAULT_REL_TYPES = [
-    "S", "HSFS", "PSC", "PPSCC", "M", "MS", "SMS", "MSC", "MSM", "SMSC", "SMSM",
+# Relationship types used as features (the 17 types of the observed data in
+# nn_NPE/observed_correlations_*.csv), for both PGS1 and Y1.
+REL_TYPES = [
+    "S", "HSFS", "PSC", "PPSCC", "M", "MS", "SMS", "MSM", "MSC", "SMSC", "SMSM",
+    "SMSMS", "MSMSM", "MSMSC", "PSMSC", "SMSMSC", "MSMSMS",
 ]
+VARIABLES = ["PGS1", "Y1"]
+FEATURES = [f"{rel}_{var}" for var in VARIABLES for rel in REL_TYPES]
 
-# Relationships reported in the correlation tables, in the simulation's own
-# M/P/C/S relationship-path notation (see find_relationship_pairs). Label == path.
-#   S  = full siblings            (1st degree)
-#   P  = parent - offspring       (1st degree)
-#   PP = grandparent - grandchild (2nd degree)
-#   PS = avuncular (parent's sib) (2nd degree)
-#   MSMSM, MSMSC                  (5th-degree in-law chains)
-#   SMSMSC, MSMSMS               (6th-degree in-law chains)
-FIRST_DEGREE_RELS = {"S": "S", "P": "P"}
-SECOND_DEGREE_RELS = {"PP": "PP", "PS": "PS"}
-FIFTH_DEGREE_RELS = {"MSMSM": "MSMSM", "MSMSC": "MSMSC"}
-SIXTH_DEGREE_RELS = {"SMSMSC": "SMSMSC", "MSMSMS": "MSMSMS"}
-# Combined, ordered mapping used by the correlation tables.
-DEGREE_RELS = {**FIRST_DEGREE_RELS, **SECOND_DEGREE_RELS,
-               **FIFTH_DEGREE_RELS, **SIXTH_DEGREE_RELS}
-
-# Small, laptop-friendly simulation defaults.
+# Laptop-sized simulation defaults
 DEFAULTS = dict(
-    pop_size=1000,     # must be divisible by n_islands * 2
+    pop_size=4000,     # must be divisible by n_islands * 2
     n_islands=5,
-    n_cv=400,
+    n_cv=300,
     maf_min=0.01,
     maf_max=0.50,
+    min_pairs=30,
 )
 
 
@@ -123,90 +113,78 @@ def suppress_output():
             sys.stdout = old_stdout
 
 
-def bounds_for(param):
-    """Return the (lo, hi) range for a parameter (sampled or exploratory)."""
-    if param in PARAM_BOUNDS:
-        return PARAM_BOUNDS[param]
-    if param in EXPLORE_BOUNDS:
-        return EXPLORE_BOUNDS[param]
-    raise KeyError("No known range for parameter '%s'." % param)
-
-
 def make_full_params(overrides=None):
     """Build a complete parameter dict from the baseline plus overrides."""
     params = dict(BASELINE_PARAMS)
     if overrides:
         params.update(overrides)
+    params["n_gen"] = int(round(params["n_gen"]))
     return params
+
+
+def sample_params(rng, free=None, fixed=None):
+    """Draw the free parameters uniformly from PARAM_BOUNDS (n_gen as an integer).
+
+    Parameters not in ``free`` take their value from ``fixed`` or the baseline.
+    """
+    free = PARAMS if free is None else list(free)
+    out = make_full_params(fixed)
+    for p in free:
+        lo, hi = PARAM_BOUNDS[p]
+        if p in INT_PARAMS:
+            out[p] = int(rng.integers(lo, hi + 1))
+        else:
+            out[p] = float(rng.uniform(lo, hi))
+    return out
 
 
 def valid_pop_size(pop_size, n_islands):
     """Round pop_size down to a multiple of n_islands*2 (engine requirement)."""
     block = n_islands * 2
-    adjusted = (int(pop_size) // block) * block
-    return max(block, adjusted)
+    return max(block, (int(pop_size) // block) * block)
 
 
 # ============================================================================
-# MATRIX SETUP  (mirrors setup_matrices in the production 04 script)
+# MATRIX SETUP
 # ============================================================================
 
 def setup_matrices(params, n_generations):
-    """Build the model matrices for the AM+migration condition.
-
-    Returns a dict of keyword arguments for IslandMigrationSimulation,
-    including the scalar ``within_island_am`` (which the caller must pop out
-    before forwarding the rest to the constructor).
-    """
+    """Model matrices for the EA-migration condition (AE on EA; no AM, VT or S)."""
     vg1 = params["vg1"]
-    vg2 = params["vg2"]
-    rg = params["rg"]
-    re = params["re"]
+    vg2 = FIXED_STRUCTURE["vg2"]
+    rg = FIXED_STRUCTURE["rg"]
+    re = FIXED_STRUCTURE["re"]
     prop_h2_latent1 = params["prop_h2_latent1"]
-    prop_h2_latent2 = params["prop_h2_latent2"]
+    prop_h2_latent2 = FIXED_STRUCTURE["prop_h2_latent2"]
 
     k2_matrix = np.array([[1.0, rg], [rg, 1.0]])
 
-    # Observable genetic path matrix (trait 2 has none: prop_h2_latent2 = 1)
-    vg_obs1 = vg1 * (1.0 - prop_h2_latent1)
-    vg_obs2 = vg2 * (1.0 - prop_h2_latent2)
-    d11 = np.sqrt(max(vg_obs1, 0.0))
-    d22 = np.sqrt(max(vg_obs2, 0.0))
+    # Observable (PGS) genetic path matrix
+    d11 = np.sqrt(max(vg1 * (1.0 - prop_h2_latent1), 0.0))
+    d22 = np.sqrt(max(vg2 * (1.0 - prop_h2_latent2), 0.0))
     delta_mat = np.array([[d11, 0.0], [0.0, d22]])
 
     # Latent genetic path matrix
-    vg_lat1 = vg1 * prop_h2_latent1
-    vg_lat2 = vg2 * prop_h2_latent2
-    a11 = np.sqrt(max(vg_lat1, 0.0))
-    a22 = np.sqrt(max(vg_lat2, 0.0))
+    a11 = np.sqrt(max(vg1 * prop_h2_latent1, 0.0))
+    a22 = np.sqrt(max(vg2 * prop_h2_latent2, 0.0))
     a_mat = np.array([[a11, 0.0], [0.0, a22]])
 
     covg_mat = (delta_mat @ k2_matrix @ delta_mat.T) + (a_mat @ k2_matrix @ a_mat.T)
 
-    # Environmental covariance (traits scaled so total phenotypic var = 1)
+    # Unique environment (total phenotypic variance = 1 at generation 0)
     ve1 = 1.0 - vg1
     ve2 = 1.0 - vg2
     cove = re * np.sqrt(ve1 * ve2)
     cove_mat = np.array([[ve1, cove], [cove, ve2]])
 
-    covy_mat = covg_mat + cove_mat
-
-    # Within-trait vertical transmission only; no shared environment.
-    f_mat = np.array([[params["f11"], 0.0], [0.0, params["f22"]]])
-    s_mat = np.zeros((2, 2))
-
-    am11 = params["am11"]
-    am_list = [am11 for _ in range(n_generations)]
-
     return {
         "cove_mat": cove_mat,
-        "f_mat": f_mat,
-        "s_mat": s_mat,
+        "f_mat": np.zeros((2, 2)),          # no vertical transmission
+        "s_mat": np.zeros((2, 2)),          # no shared environment
         "a_mat": a_mat,
         "d_mat": delta_mat,
-        "am_list": am_list,
-        "within_island_am": am11,
-        "covy_mat": covy_mat,
+        "am_list": [0.0] * n_generations,   # no assortative mating
+        "covy_mat": covg_mat + cove_mat,
         "k2_matrix": k2_matrix,
     }
 
@@ -215,32 +193,28 @@ def setup_matrices(params, n_generations):
 # RUN A SIMULATION
 # ============================================================================
 
-def run_island_simulation(params, *, pop_size, n_generations, n_islands,
-                          n_cv, seed, save_history,
+def run_island_simulation(params, *, pop_size=DEFAULTS["pop_size"],
+                          n_islands=DEFAULTS["n_islands"], n_cv=DEFAULTS["n_cv"],
+                          seed=1, save_history=True,
                           maf_min=DEFAULTS["maf_min"], maf_max=DEFAULTS["maf_max"]):
-    """Construct and run one small AM+migration simulation.
-
-    ``save_history=False`` is enough for the equilibrium test (it only reads
-    the per-generation variance summary). The identifiability test needs
-    ``save_history=True`` so relationship pairs can be enumerated.
-    """
+    """Construct and run one EA-migration simulation for ``params['n_gen']`` generations."""
+    n_gen = int(params["n_gen"])
     pop_size = valid_pop_size(pop_size, n_islands)
-    matrices = setup_matrices(params, n_generations)
-    within_island_am = matrices.pop("within_island_am")
+    matrices = setup_matrices(params, n_gen)
 
     with suppress_output():
         sim = IslandMigrationSimulation(
             n_islands=n_islands,
             move_p=params["move_p"],
-            within_island_am=within_island_am,
-            migration_trait=2,   # islands sorted by Y2 (migration trait)
-            mating_trait=1,      # within-island AM on Y1 (EA)
+            within_island_am=0.0,  # random mating within islands
+            migration_trait=1,     # islands sorted directly on EA (Y1)
+            mating_trait=1,
             n_jobs=1,
             n_CV=n_cv,
-            rg_effects=params["rg"],
+            rg_effects=FIXED_STRUCTURE["rg"],
             maf_min=maf_min,
             maf_max=maf_max,
-            num_generations=n_generations,
+            num_generations=n_gen,
             pop_size=pop_size,
             mating_type="phenotypic",
             avoid_inbreeding=True,
@@ -258,125 +232,176 @@ def run_island_simulation(params, *, pop_size, n_generations, n_islands,
 # READ-OUTS
 # ============================================================================
 
-def variance_trajectory(results):
-    """Per-generation phenotypic variance and heritability from SUMMARY.RES.
+def strat_trajectory(results):
+    """Per-generation Var(Y1) and the between-island share of Y1 and PGS1 variance.
 
-    Returns a DataFrame with columns: gen, var_Y1, var_Y2, h2_1, h2_2.
+    Requires a run with ``save_history=True``. Generation 0 is the founders; its
+    snapshot is saved before island IDs are attached, so its shares are NaN.
+    Later generations carry the island they were born on (mother's island).
     """
     rows = []
-    for s in results.get("SUMMARY.RES", []):
-        vp = np.array(s.get("VP", [[np.nan, np.nan], [np.nan, np.nan]]), dtype=float)
-        h2 = s.get("h2", [np.nan, np.nan])
-        rows.append({
-            "gen": s.get("GEN", np.nan),
-            "var_Y1": vp[0, 0],
-            "var_Y2": vp[1, 1],
-            "h2_1": float(h2[0]) if h2 else np.nan,
-            "h2_2": float(h2[1]) if h2 else np.nan,
-        })
+    for g, phen in enumerate(results["HISTORY"]["PHEN"]):
+        if "island_id" not in phen.columns:
+            rows.append({"gen": g, "var_Y1": pd.to_numeric(phen["Y1"]).var(),
+                         "between_share_Y1": np.nan, "between_share_PGS1": np.nan})
+            continue
+        df = phen[["Y1", "TPO1", "TMO1", "island_id"]].apply(pd.to_numeric, errors="coerce")
+        df = df.dropna(subset=["island_id"])
+        df["PGS1"] = df["TPO1"] + df["TMO1"]
+        row = {"gen": g, "var_Y1": df["Y1"].var()}
+        for v in ("Y1", "PGS1"):
+            total = df[v].var()
+            between = df.groupby("island_id")[v].mean().var() if df["island_id"].nunique() > 1 else 0.0
+            row[f"between_share_{v}"] = between / total if total > 0 else np.nan
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
 def _trim_to_final_generations(results, n_generations, n_final=3):
-    """Slice the saved HISTORY down to the last ``n_final`` generations."""
+    """Slice HISTORY to the last ``n_final`` analysed generations.
+
+    Follows the production convention (DataGeneratingNN_Combined_04AMmigration.py):
+    PHEN/XO/XL at FINAL_GENS = [G-3, G-2, G-1] and MATES at FINAL_GENS + [G], because
+    MATES[i+1] holds the mating pairs formed in generation i.
+    """
     hist = results["HISTORY"]
-    final_idx = list(range(n_generations - n_final, n_generations))
+    final_gens = list(range(n_generations - n_final, n_generations))
     n_mates = len(hist["MATES"])
+    mates_idx = final_gens + [final_gens[-1] + 1] if final_gens[-1] + 1 < n_mates else final_gens
     return {
         "HISTORY": {
-            "PHEN": [hist["PHEN"][i] for i in final_idx],
-            "XO": [hist["XO"][i] for i in final_idx],
-            "XL": [hist["XL"][i] for i in final_idx],
-            "MATES": [hist["MATES"][i] if i < n_mates else None for i in final_idx],
+            "PHEN": [hist["PHEN"][i] for i in final_gens],
+            "XO": [hist["XO"][i] for i in final_gens],
+            "XL": [hist["XL"][i] for i in final_gens],
+            "MATES": [hist["MATES"][i] if i < n_mates else None for i in mates_idx],
         }
     }
 
 
-def pgs1_correlations(results, n_generations, rel_types=None, min_pairs=30):
-    """Compute PGS1 (EA polygenic score) correlations by relationship type.
+def feature_vector(results, n_generations, rel_types=None, min_pairs=DEFAULTS["min_pairs"]):
+    """PGS1 and Y1 correlations between relatives, for each relationship type.
 
-    Returns a dict {rel_type: correlation}. Relationship types with fewer than
-    ``min_pairs`` usable pairs are returned as NaN.
+    Returns a Series indexed ``{REL}_PGS1`` and ``{REL}_Y1``; relationship types
+    with fewer than ``min_pairs`` usable pairs are NaN.
     """
-    if rel_types is None:
-        rel_types = DEFAULT_REL_TYPES
-
+    rel_types = REL_TYPES if rel_types is None else rel_types
     trimmed = _trim_to_final_generations(results, n_generations)
 
-    measures = extract_individual_measures(trimmed, ["Y1", "Y2", "TPO1", "TMO1"])
+    measures = extract_individual_measures(trimmed, ["Y1", "TPO1", "TMO1"])
     measures["PGS1"] = measures["TPO1"] + measures["TMO1"]
-    pgs_lookup = measures.set_index("ID")["PGS1"].to_dict()
+    lookup = measures.set_index("ID")[VARIABLES]
 
     out = {}
     for rel in rel_types:
         try:
             with suppress_output():
-                pairs = find_relationship_pairs(
-                    trimmed, rel, generations=[0, 1, 2], output_format="long"
-                )
+                pairs = find_relationship_pairs(trimmed, rel, generations=[0, 1, 2],
+                                                output_format="long")
         except Exception:
-            out[rel] = np.nan
-            continue
-
+            pairs = None
+        for var in VARIABLES:
+            out[f"{rel}_{var}"] = np.nan
         if pairs is None or len(pairs) == 0:
-            out[rel] = np.nan
             continue
-
-        x = pairs["Person_ID"].map(pgs_lookup).to_numpy(dtype=float)
-        y = pairs["Relative_ID"].map(pgs_lookup).to_numpy(dtype=float)
-        ok = np.isfinite(x) & np.isfinite(y)
-        if ok.sum() < min_pairs:
-            out[rel] = np.nan
-            continue
-
-        xs, ys = x[ok], y[ok]
-        if xs.std() < 1e-9 or ys.std() < 1e-9:
-            out[rel] = np.nan
-            continue
-        out[rel] = float(np.corrcoef(xs, ys)[0, 1])
-    return out
+        for var in VARIABLES:
+            col = lookup[var]
+            x = pairs["Person_ID"].map(col).to_numpy(dtype=float)
+            y = pairs["Relative_ID"].map(col).to_numpy(dtype=float)
+            ok = np.isfinite(x) & np.isfinite(y)
+            if ok.sum() < min_pairs or x[ok].std() < 1e-9 or y[ok].std() < 1e-9:
+                continue
+            out[f"{rel}_{var}"] = float(np.corrcoef(x[ok], y[ok])[0, 1])
+    return pd.Series(out, dtype=float).reindex(
+        [f"{r}_{v}" for v in VARIABLES for r in rel_types])
 
 
-def relative_correlations(results, n_generations, rel_map, variable="PGS1",
-                          min_pairs=30):
-    """Correlation of ``variable`` between relatives, for each label -> path.
+def simulate_features(params, seed, sim_kwargs=None):
+    """Run one simulation and return its feature vector (NaNs on failure)."""
+    sim_kwargs = dict(sim_kwargs or {})
+    min_pairs = sim_kwargs.pop("min_pairs", DEFAULTS["min_pairs"])
+    try:
+        results = run_island_simulation(params, seed=seed, save_history=True, **sim_kwargs)
+        return feature_vector(results, int(params["n_gen"]), min_pairs=min_pairs)
+    except Exception as exc:
+        print(f"    ! sim failed ({str(exc)[:80]}) -> NaN features", flush=True)
+        return pd.Series(np.nan, index=FEATURES, dtype=float)
 
-    ``rel_map`` is a dict of {label: relationship_path} (e.g. FIRST_DEGREE_RELS).
-    ``variable`` is "PGS1" (EA polygenic score) or "Y1"/"Y2" (phenotype).
-    Returns {label: correlation}; labels with fewer than ``min_pairs`` usable
-    pairs are returned as NaN.
+
+# ============================================================================
+# PARALLEL SIMULATION DESIGN
+# ============================================================================
+
+_THREAD_VARS = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+                "VECLIB_MAXIMUM_THREADS")
+
+
+def single_thread_env():
+    """Cap BLAS threads at 1 in this process's environment.
+
+    Must be called in the parent *before* worker processes are spawned: the
+    children read these variables when they first import numpy.
     """
-    trimmed = _trim_to_final_generations(results, n_generations)
+    for var in _THREAD_VARS:
+        os.environ[var] = "1"
 
-    measures = extract_individual_measures(trimmed, ["Y1", "Y2", "TPO1", "TMO1"])
-    measures["PGS1"] = measures["TPO1"] + measures["TMO1"]
-    lookup = measures.set_index("ID")[variable].to_dict()
 
-    out = {}
-    for label, path in rel_map.items():
-        try:
-            with suppress_output():
-                pairs = find_relationship_pairs(
-                    trimmed, path, generations=[0, 1, 2], output_format="long"
-                )
-        except Exception:
-            out[label] = np.nan
-            continue
+def _design_worker(job):
+    """Worker for the process pool: job = (row_id, params, seed, sim_kwargs)."""
+    row_id, params, seed, sim_kwargs = job
+    feats = simulate_features(params, seed, sim_kwargs)
+    return row_id, params, feats
 
-        if pairs is None or len(pairs) == 0:
-            out[label] = np.nan
-            continue
 
-        x = pairs["Person_ID"].map(lookup).to_numpy(dtype=float)
-        y = pairs["Relative_ID"].map(lookup).to_numpy(dtype=float)
-        ok = np.isfinite(x) & np.isfinite(y)
-        if ok.sum() < min_pairs:
-            out[label] = np.nan
-            continue
+def run_jobs(jobs, n_workers=3, progress_every=25):
+    """Run ``_design_worker`` jobs on at most ``n_workers`` processes."""
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    import multiprocessing as mp
 
-        xs, ys = x[ok], y[ok]
-        if xs.std() < 1e-9 or ys.std() < 1e-9:
-            out[label] = np.nan
-            continue
-        out[label] = float(np.corrcoef(xs, ys)[0, 1])
+    out = []
+    if n_workers <= 1:
+        for k, job in enumerate(jobs):
+            out.append(_design_worker(job))
+            if (k + 1) % progress_every == 0:
+                print(f"    simulated {k + 1}/{len(jobs)}", flush=True)
+        return out
+    single_thread_env()
+    ctx = mp.get_context("spawn")
+    with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as ex:
+        futs = [ex.submit(_design_worker, job) for job in jobs]
+        for k, fut in enumerate(as_completed(futs)):
+            out.append(fut.result())
+            if (k + 1) % progress_every == 0:
+                print(f"    simulated {k + 1}/{len(jobs)}", flush=True)
     return out
+
+
+def simulate_design(n, out_csv, *, free=None, fixed=None, seed=2026, n_workers=3,
+                    sim_kwargs=None, chunk=60):
+    """Simulate ``n`` conditions with ``free`` parameters drawn uniformly.
+
+    Rows are appended to ``out_csv`` chunk by chunk, so an interrupted run
+    resumes where it stopped. Returns the full design DataFrame
+    (``param_*`` columns + feature columns).
+    """
+    out_csv = Path(out_csv)
+    rng = np.random.default_rng(seed)
+    all_params = [sample_params(rng, free, fixed) for _ in range(n)]
+
+    done = pd.read_csv(out_csv) if out_csv.exists() else pd.DataFrame()
+    done_ids = set(done["row_id"]) if "row_id" in done else set()
+    todo = [i for i in range(n) if i not in done_ids]
+    print(f"[design] {len(done_ids)} rows cached, {len(todo)} to simulate -> {out_csv}", flush=True)
+
+    for start in range(0, len(todo), chunk):
+        ids = todo[start:start + chunk]
+        jobs = [(i, all_params[i], seed * 1000 + i, sim_kwargs) for i in ids]
+        rows = []
+        for row_id, params, feats in run_jobs(jobs, n_workers=n_workers, progress_every=10**9):
+            row = {"row_id": row_id, **{f"param_{p}": params[p] for p in PARAMS}}
+            row.update(feats.to_dict())
+            rows.append(row)
+        chunk_df = pd.DataFrame(rows).sort_values("row_id")
+        chunk_df.to_csv(out_csv, mode="a", header=not out_csv.exists(), index=False)
+        print(f"[design] {min(start + chunk, len(todo))}/{len(todo)} new rows written", flush=True)
+
+    return pd.read_csv(out_csv).sort_values("row_id").reset_index(drop=True)

@@ -44,6 +44,8 @@ warnings.filterwarnings("ignore")
 # Must be imported before pickle.load so the classes are resolvable during unpickling.
 # The posterior was pickled with these classes defined in the training script.
 from train_npe_pgs_and_pheno import PgsPhenoEmbeddingNet, SNPEFeatureReg, AttentionLayer  # noqa: F401
+from train_npe_pgs_and_pheno import set_eval_mode
+import npe_count  # noqa: F401  (MixedPosterior, for runs trained with --count_param)
 
 
 # ============================================================================
@@ -219,8 +221,7 @@ def sample_and_summarise(
     x_tensor = torch.FloatTensor(x_obs_scaled)
 
     print(f"Drawing {n_samples:,} posterior samples …")
-    if hasattr(posterior, '_neural_net'):
-        posterior._neural_net.eval()
+    set_eval_mode(posterior)
     with torch.no_grad():
         samples = posterior.sample(
             sample_shape=(n_samples,),
@@ -524,6 +525,17 @@ def main():
     samples_df.to_csv(samples_path, index=False)
     print(f"\n✓ Posterior summary  → {summary_path}")
     print(f"✓ Raw samples        → {samples_path}")
+
+    # Count parameter (e.g. n_gen): exact posterior probability of each value
+    if config.get("count_param"):
+        pmf = posterior.count_pmf(X_scaled)[0]
+        pmf_df = pd.DataFrame({config["count_param"]: config["count_values"], "probability": pmf})
+        pmf_path = output_dir / "posterior_count_pmf.csv"
+        pmf_df.to_csv(pmf_path, index=False)
+        print(f"\nPosterior of {config['count_param']} (mode = "
+              f"{pmf_df.iloc[int(np.argmax(pmf)), 0]}):")
+        print(pmf_df.round(3).to_string(index=False))
+        print(f"✓ Count posterior    → {pmf_path}")
 
     # Plots
     plot_posterior_distributions(samples_df, output_dir, param_names)
