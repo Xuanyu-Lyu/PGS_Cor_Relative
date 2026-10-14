@@ -260,7 +260,7 @@ def strat_trajectory(results):
 def _trim_to_final_generations(results, n_generations, n_final=3):
     """Slice HISTORY to the last ``n_final`` analysed generations.
 
-    Follows the production convention (DataGeneratingNN_Combined_04AMmigration.py):
+    Follows the production convention (DataGeneratingNN_Combined_04EAmigration.py):
     PHEN/XO/XL at FINAL_GENS = [G-3, G-2, G-1] and MATES at FINAL_GENS + [G], because
     MATES[i+1] holds the mating pairs formed in generation i.
     """

@@ -9,8 +9,10 @@ This simulates one condition (Direct AM):
    (AE), within-trait vertical transmission on trait 2 (f22), and direct
    phenotypic assortative mating on both traits (am11 and am22). No genetic or
    environmental correlation between traits (rg = re = 0). Trait 2 (AFE)
-   genetic variance (vg2) and shared environment (s22) are fixed rather than
-   sampled.
+   genetic variance (vg2) and shared environment (s22) are sampled too.
+   This is the design of the NN training data (nn_training_01DirAM.csv); a later
+   variant with vg2 and s22 fixed and 20 generations was only partly simulated
+   and is kept in Scripts/Archive/unrun_generator_designs/.
 
 Usage:
     python DataGeneratingNN_Combined_01DirAM.py
@@ -48,8 +50,8 @@ ITERATIONS_PER_CONDITION = 1   # Each condition is unique; one simulation per co
 CONDITIONS_PER_JOB = 40        # Conditions (simulations) processed per SLURM job
 N_CONDITIONS_TOTAL = 20000     # Total unique conditions (500 jobs × 40 conditions)
 POP_SIZE = 40000
-N_GENERATIONS = 20
-FINAL_GENS = [17, 18, 19]  # Final 3 generations to analyze
+N_GENERATIONS = 15
+FINAL_GENS = [12, 13, 14]  # Final 3 generations to analyze
 N_CV = 1000
 MAF_MIN = 0.01
 MAF_MAX = 0.5
@@ -59,9 +61,9 @@ PARAM_BOUNDS = {
     'prop_h2_latent1': [0.2,  0.9],
     'prop_h2_latent2': [0.2,  0.9],
     'vg1':             [0.2,  0.8],
-    #'vg2':             [0.2,  0.8],  # fixed below
+    'vg2':             [0.2,  0.8],
     'f22':             [0.00, 0.5],
-    #'s22':             [0.0,  0.5],  # fixed below
+    's22':             [0.0,  0.5],
     'am11':            [0.1, 0.8],
     'am22':            [0.1, 0.8],
 }
@@ -77,8 +79,6 @@ FIXED_PARAMS = {
     's11': 0,
     's12': 0,
     's21': 0,
-    's22': 0.1,       # Trait 2 (AFE) shared environment (fixed)
-    'vg2': 0.5,       # Trait 2 (AFE) total genetic variance (fixed)
     're': 0,
     'rg': 0,
     #'prop_h2_latent2': 1.0  # 0.8/0.8 = 1.0
@@ -408,11 +408,18 @@ def run_condition(condition, project_base):
     condition_name = condition['name']
 
     # Skip if this condition was already successfully simulated (e.g. a prior
-    # cluster run completed it before a glitch interrupted the array job).
+    # cluster run completed it before a glitch interrupted the array job), but only
+    # if it was simulated with these parameters: output from another design is redone.
     nn_training_file = project_base / condition_name / "nn_training_format.csv"
-    if nn_training_file.exists():
-        print(f"\n  ⏭ Skipping {condition_name}: already simulated ({nn_training_file})")
-        return True
+    params_file = project_base / condition_name / "condition_parameters.csv"
+    if nn_training_file.exists() and params_file.exists():
+        saved = pd.read_csv(params_file).iloc[0].to_dict()
+        same = all(k in saved and pd.notna(saved[k]) and np.isclose(float(saved[k]), float(v))
+                   for k, v in condition.items() if k != 'name')
+        if same:
+            print(f"\n  ⏭ Skipping {condition_name}: already simulated ({nn_training_file})")
+            return True
+        print(f"\n  ↻ {condition_name}: existing output used other parameters; rerunning")
 
     print(f"\n{'#'*70}")
     print(f"# {condition_name}")

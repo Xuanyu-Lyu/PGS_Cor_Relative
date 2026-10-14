@@ -20,7 +20,7 @@ held-out NLL by 0.62 +/- 0.03 nats on the condition-02 training data (3 seeds)
 and by 0.35 +/- 0.03 nats on the condition-04 test design (5 seeds), with equal
 or higher R^2 for every parameter, better-calibrated posterior means, smaller
 bias at the edges of the prior, 90% intervals closer to nominal, and ~40% faster
-training. See Scripts/test_04AMmigration/benchmark_npe_architecture.py and
+training. See Scripts/test_04EAmigration/benchmark_npe_architecture.py and
 Scripts/nn_validate/ace_npe/README.md ("Why there is no embedding network").
 
 **Legacy (``--embedding mlp``):** an embedding network
@@ -587,9 +587,14 @@ def main():
                              "(one per line). Names must match param_<name> columns in the CSV.")
     parser.add_argument("--missing_threshold", type=float, default=0.95,
                         help="Max fraction of missing correlations per row")
-    parser.add_argument("--prior_buffer", type=float, default=0.1,
-                        help="Fraction of parameter range added as buffer around "
-                             "training-data min/max when defining the BoxUniform prior")
+    parser.add_argument("--prior_buffer", type=float, default=0.0,
+                        help="Fraction of parameter range added as buffer around the "
+                             "simulated min/max when defining the BoxUniform prior (default 0: "
+                             "the prior is the simulated range, so the posterior has no mass "
+                             "where there are no simulations)")
+    parser.add_argument("--row_filter", type=str, default=None,
+                        help="pandas query selecting the training rows to keep, e.g. "
+                             "'param_vg2.notna()' to drop rows simulated under another design")
     parser.add_argument("--n_posterior_samples", type=int, default=500,
                         help="Posterior samples per test observation for evaluation")
     parser.add_argument("--device", type=str, default="auto")
@@ -641,6 +646,10 @@ def main():
     # 1. Load and clean data
     # ------------------------------------------------------------------
     df = load_and_clean_data(args.data, missing_threshold=args.missing_threshold)
+    if args.row_filter:
+        n_before = len(df)
+        df = df.query(args.row_filter, engine="python").copy()
+        print(f"✓ Row filter '{args.row_filter}': kept {len(df)} of {n_before} rows")
     if len(df) == 0:
         print("\n✗ No data available after cleaning. Exiting.")
         return
@@ -778,16 +787,17 @@ def main():
     flow_param_names = [active_param_names[i] for i in flow_cols]
 
     # ------------------------------------------------------------------
-    # 7. Define BoxUniform prior from training data range (+buffer)
+    # 7. Define BoxUniform prior from the simulated parameter range (+buffer)
     # ------------------------------------------------------------------
     print("\n" + "=" * 70)
-    print("PRIOR DEFINITION (BoxUniform from training data range)")
+    print("PRIOR DEFINITION (BoxUniform from the simulated parameter range)")
     print("=" * 70)
 
     prior_lower = prior_upper = torch.zeros(0)
     if flow_cols:
-        y_min = y_train[:, flow_cols].min(axis=0)
-        y_max = y_train[:, flow_cols].max(axis=0)
+        # all rows, not just the training split: the prior is the simulated design
+        y_min = y[:, flow_cols].min(axis=0)
+        y_max = y[:, flow_cols].max(axis=0)
         buffer = args.prior_buffer * (y_max - y_min)
         prior_lower = torch.tensor(y_min - buffer, dtype=torch.float32)
         prior_upper = torch.tensor(y_max + buffer, dtype=torch.float32)
@@ -965,6 +975,8 @@ def main():
         "count_param": args.count_param,
         "count_values": count_values.tolist() if count_values is not None else None,
         "group_col": args.group_col,
+        "row_filter": args.row_filter,
+        "prior_buffer": args.prior_buffer,
         "note": (
             "NPE (SNPE-C) model: standardised correlations feed a Neural Spline Flow "
             "directly (no embedding network)."

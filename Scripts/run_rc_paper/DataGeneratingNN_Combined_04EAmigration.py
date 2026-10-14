@@ -6,7 +6,7 @@ saving raw simulation data. This increases efficiency and saves storage space.
 
 This simulates one condition:
 4) EA-driven island migration (overhauled condition 04; tested in
-   Scripts/test_04AMmigration):
+   Scripts/test_04EAmigration):
    - Trait 1: EA = additive genetics (PGS part + latent part) + unique environment.
      No assortative mating (random mating within islands), no vertical
      transmission, no shared environment.
@@ -30,7 +30,7 @@ generations would be analysed:
 
 Generation G's state depends only on generations 0..G, so this window is
 identical to the final window of a G-generation run with the same seed (checked
-in Scripts/test_04AMmigration). One simulation therefore yields len(GEN_VALUES)
+in Scripts/test_04EAmigration). One simulation therefore yields len(GEN_VALUES)
 training rows, one per n_gen, which share the other parameters and overlap in
 the individuals they contain. They are NOT independent: every row carries the
 condition name in 'Condition', and train/val/test splits must group on it

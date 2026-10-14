@@ -10,10 +10,8 @@ This simulates one condition:
    on latent trait 2 (AM on latent factor 2).
    Cross-trait vertical transmission (f12, f21) is disabled (fixed to 0).
    Shared environment (s11, s12, s21, s22) is fixed at 0.5.
-   Vertical transmission is fixed (f11=0.10, f22=0.10); the free parameters are
-   prop_h2_latent1, vg1, re, am22 and rg (as in condition 02AElatentAM).
-   Trait 2 genetic variance (vg2) is fixed at 0.5; trait 2 remains fully latent
-   (prop_h2_latent2=1.0).
+   Environmental correlation (re) is fixed at 0.1 and trait 2 genetic variance
+   (vg2) is fixed at 0.5; trait 2 remains fully latent (prop_h2_latent2=1.0).
 
 Usage:
     python DataGeneratingNN_Combined_03EnvLatentAM.py
@@ -58,23 +56,30 @@ MAF_MIN = 0.01
 MAF_MAX = 0.5
 
 # Parameter bounds for uniform sampling: [min, max]
-# Same five free parameters (and ranges) as condition 02AElatentAM.
 PARAM_BOUNDS = {
-    'prop_h2_latent1': [0.30,  0.9],
+    #'prop_h2_latent1': [0.5,  0.9],
     #'prop_h2_latent2': [0.5,  0.9],
-    'vg1':             [0.2,  0.8],
-    #'vg2':             [0.2,  0.8],  # fixed below
-    're':              [0.0,  0.6],
+    'vg1':             [0.4,  0.8],
+    #'vg2':             [0.4,  0.8],  # fixed below
+    'f11':             [0.05, 0.30],
+    'f22':             [0.05, 0.30],
+    #'f12':             [0.02, 0.25],
+    #'f21':             [0.02, 0.25],
+    #'s11':             [0.0,  0.4],
+    #'s22':             [0.0,  0.4],
+    #'s12':             [0.0,  0.4],
+    #'s21':             [0.0,  0.4],
+    #'re':              [0.0,  0.4],  # fixed below
     'am22':            [0.25, 0.75],
-    'rg':              [0.20, 0.90],
+    'rg':              [0.30, 0.90],
 }
 
 # Fixed parameters
 FIXED_PARAMS = {
+    'prop_h2_latent1': 0.7,   # Trait 1: 70% of genetic variance is latent (no PGS)
     'prop_h2_latent2': 1.0,   # Trait 2: 100% of genetic variance is latent (no PGS)
     'vg2': 0.5,               # Trait 2 total genetic variance (fixed)
-    'f11': 0.10,              # Trait 1 vertical transmission (fixed; not identified jointly with vg1)
-    'f22': 0.10,              # Trait 2 vertical transmission (fixed; poorly identified)
+    're': 0.1,                # Environmental correlation between traits (fixed)
     'am11': 0,
     'am12': 0,
     'am21': 0,

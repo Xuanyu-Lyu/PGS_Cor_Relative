@@ -28,27 +28,29 @@ PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predic
 # Trait 2: AFE model (vertical transmission f22, social homogamy s22), direct AM via am22.
 # No genetic or environmental correlation between traits (rg = re = 0).
 # Trait 1 (AE) free params are posterior means from results_npe_unweighted_01DirAM_AE.
-# Trait 2 (AFE) free params (prop_h2_latent2, am22, f22) are posterior means from
-# results_npe_unweighted_01DirAM_AFE; vg2 and s22 are fixed at the values used to
-# generate the NN training data (see DataGeneratingNN_Combined_01DirAM.py FIXED_PARAMS),
-# not estimated by the NPE.
-# Posterior means updated 2026-10-08: NPE retrained without the embedding network
-# (nn_NPE/run_npe_pipeline.py). Previous values: nn_NPE/results_archive/
-# before_noembedding_20261007/posterior_mean_changes.csv. Caveat: the observed
-# correlations lie outside the simulated distribution, so these are extrapolations.
+# Trait 2 (AFE) free params (prop_h2_latent2, vg2, f22, s22, am22) are posterior means
+# from results_npe_unweighted_01DirAM_AFE (vg2 and s22 are sampled in the training data).
+# Posterior means updated 2026-10-13 (nn_NPE/run_npe_pipeline.py): the posterior is
+# restricted to the simulated parameter range, and only the rows of the training-data
+# design (vg2 and s22 sampled, 15 generations) are used. Previous values:
+# nn_NPE/results_archive/before_prior_fix_20261013/posterior_mean_changes.csv. 46.1% of
+# the unrestricted 01DirAM_AE posterior lies inside the simulated range. Less than 0.01%
+# of the unrestricted 01DirAM_AFE posterior lies inside the simulated range: the
+# observed correlations are outside what this model produces, so the estimates sit at
+# the edge of that range.
 CONDITION = {
     'name': 'Predicted_Condition_01DirAM',
     # Trait 1: AE model (posterior means, results_npe_unweighted_01DirAM_AE)
-    'prop_h2_latent1': 0.6020,
-    'vg1': 0.2047,
-    'am11': 0.4388,
+    'prop_h2_latent1': 0.6108,
+    'vg1': 0.2139,
+    'am11': 0.4369,
     'f11': 0.0,       # AE model: no vertical transmission
-    # Trait 2: AFE model (prop_h2_latent2/am22/f22 posterior means, results_npe_unweighted_01DirAM_AFE)
-    'prop_h2_latent2': 0.6250,
-    'vg2': 0.5,       # fixed (not estimated — see DataGeneratingNN_Combined_01DirAM.py)
-    'am22': 0.4534,
-    'f22': -0.0013,   # posterior mean; outside the simulated range [0, 0.5]
-    's22': 0.1,       # fixed (not estimated — see DataGeneratingNN_Combined_01DirAM.py)
+    # Trait 2: AFE model (prop_h2_latent2/vg2/am22/f22/s22 posterior means, results_npe_unweighted_01DirAM_AFE)
+    'prop_h2_latent2': 0.6242,
+    'vg2': 0.2798,    # posterior mean
+    'am22': 0.4381,
+    'f22': 0.0077,    # posterior mean
+    's22': 0.2743,    # posterior mean
     's11': 0.0,       # no shared family environment (trait 1)
     's12': 0.0,       # no cross-trait family environment
     's21': 0.0,       # no cross-trait family environment
@@ -233,6 +235,29 @@ def compute_pgs_from_components(measures_df):
     df['PGS2'] = df['TPO2'] + df['TMO2']
     return df
 
+def trim_to_final_generations(results):
+    """
+    HISTORY slice for FINAL_GENS, as in DataGeneratingNN_Combined_01DirAM.py.
+
+    The NN training data were computed on this 3-generation window (indexed 0, 1, 2),
+    so relationship paths cannot reach generations before FINAL_GENS[0]. MATES[i+1]
+    holds the pairs formed in generation i, so the window takes MATES at
+    FINAL_GENS + [FINAL_GENS[-1] + 1].
+    """
+    history = results['HISTORY']
+    n_mates = len(history['MATES'])
+    mates_idx = (FINAL_GENS + [FINAL_GENS[-1] + 1]
+                 if FINAL_GENS[-1] + 1 < n_mates else FINAL_GENS)
+    return {
+        'HISTORY': {
+            'PHEN':  [history['PHEN'][i] for i in FINAL_GENS],
+            'XO':    [history['XO'][i] for i in FINAL_GENS],
+            'XL':    [history['XL'][i] for i in FINAL_GENS],
+            'MATES': [history['MATES'][i] if i < n_mates else None for i in mates_idx],
+        }
+    }
+
+
 def extract_and_analyze_relationships(results, iteration, output_dir):
     """
     Extract measures and analyze correlations for different relationship types.
@@ -256,9 +281,10 @@ def extract_and_analyze_relationships(results, iteration, output_dir):
     # Extract measures for all individuals (needed for genealogy)
     # Use TPO/TMO components to compute PGS, plus Y1, Y2
     variables = ['Y1', 'Y2', 'TPO1', 'TPO2', 'TMO1', 'TMO2']
+    trimmed = trim_to_final_generations(results)
 
     try:
-        individual_measures = extract_individual_measures(results, variables)
+        individual_measures = extract_individual_measures(trimmed, variables)
         # Compute PGS from transmissible components
         individual_measures = compute_pgs_from_components(individual_measures)
         print(f"  ✓ Extracted measures for {len(individual_measures):,} individuals")
@@ -277,9 +303,9 @@ def extract_and_analyze_relationships(results, iteration, output_dir):
         try:
             # Find pairs for final three generations only
             pairs = find_relationship_pairs(
-                results, rel_path,
+                trimmed, rel_path,
                 output_format='long',
-                generations=FINAL_GENS
+                generations=[0, 1, 2],   # trimmed window = FINAL_GENS
             )
 
             if len(pairs) == 0:

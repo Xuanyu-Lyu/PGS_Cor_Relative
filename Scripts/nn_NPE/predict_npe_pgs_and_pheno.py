@@ -196,43 +196,12 @@ def prepare_correlation_input(
 # POSTERIOR SAMPLING AND REPORTING
 # ============================================================================
 
-def sample_and_summarise(
-    posterior,
-    x_obs_scaled: np.ndarray,
-    param_names: list,
-    n_samples: int = 1000,
-) -> pd.DataFrame:
-    """
-    Draw posterior samples and compute summary statistics.
+N_PILOT = 20000          # unconstrained draws used to measure how much posterior lies in the prior
+MIN_ACCEPTANCE = 0.01    # below this, rejection sampling is too slow: sample with MCMC instead
 
-    Parameters
-    ----------
-    posterior : sbi NeuralPosterior
-    x_obs_scaled : np.ndarray  (1, n_features)  – already StandardScaler-transformed
-    param_names : list of str
-    n_samples : int  – number of posterior samples to draw
 
-    Returns
-    -------
-    summary_df : pd.DataFrame with columns
-        [parameter, mean, median, std, ci_lower_2.5, ci_upper_97.5, ci_width_95]
-    samples_df : pd.DataFrame  (n_samples × n_params)  – raw posterior samples
-    """
-    x_tensor = torch.FloatTensor(x_obs_scaled)
-
-    print(f"Drawing {n_samples:,} posterior samples …")
-    set_eval_mode(posterior)
-    with torch.no_grad():
-        samples = posterior.sample(
-            sample_shape=(n_samples,),
-            x=x_tensor,
-            show_progress_bars=True,
-            reject_outside_prior=False,
-        )
-
-    samples_np = samples.cpu().numpy()   # shape: (n_samples, n_params)
-
-    # Summary statistics
+def _summarise(samples_np: np.ndarray, param_names: list) -> pd.DataFrame:
+    """mean, median, std and 95% interval per parameter."""
     rows = []
     for i, param in enumerate(param_names):
         col = samples_np[:, i]
@@ -247,10 +216,97 @@ def sample_and_summarise(
             "ci_upper_97.5":  float(ci_hi),
             "ci_width_95":    float(ci_hi - ci_lo),
         })
+    return pd.DataFrame(rows)
 
-    summary_df = pd.DataFrame(rows)
+
+def _inside_prior(posterior, theta: torch.Tensor) -> torch.Tensor:
+    """True for samples inside the prior support, i.e. the simulated parameter range."""
+    from sbi.utils import within_support
+    if isinstance(posterior, npe_count.MixedPosterior):
+        if posterior.flow_posterior is None:
+            return torch.ones(len(theta), dtype=torch.bool)
+        return within_support(posterior.flow_posterior.prior, theta[:, posterior.cont_index])
+    return within_support(posterior.prior, theta)
+
+
+def _sample_in_prior_mcmc(posterior, x_tensor: torch.Tensor, n_samples: int) -> torch.Tensor:
+    """Sample the flow density restricted to the prior support with slice-sampling MCMC.
+
+    This is the posterior the rejection sampler targets; MCMC reaches it even when
+    almost none of the flow's mass lies inside the prior.
+    """
+    from sbi.inference import MCMCPosterior
+    from sbi.inference.potentials import posterior_estimator_based_potential
+    potential_fn, theta_transform = posterior_estimator_based_potential(
+        posterior.posterior_estimator, posterior.prior, x_o=x_tensor)
+    mcmc = MCMCPosterior(potential_fn, proposal=posterior.prior, theta_transform=theta_transform,
+                         method="slice_np_vectorized", num_chains=20, warmup_steps=500,
+                         thin=5, init_strategy="resample")
+    return mcmc.sample((n_samples,), x=x_tensor, show_progress_bars=False)
+
+
+def sample_and_summarise(
+    posterior,
+    x_obs_scaled: np.ndarray,
+    param_names: list,
+    n_samples: int = 1000,
+):
+    """
+    Draw posterior samples and compute summary statistics.
+
+    The posterior is restricted to the prior support (the simulated parameter
+    range): the flow can put mass outside it, where there are no simulations, and
+    that mass is not part of the posterior. Unconstrained draws are summarised
+    separately so the size of that extrapolation stays visible.
+
+    Parameters
+    ----------
+    posterior : sbi NeuralPosterior (or npe_count.MixedPosterior)
+    x_obs_scaled : np.ndarray  (1, n_features)  – already StandardScaler-transformed
+    param_names : list of str
+    n_samples : int  – number of posterior samples to draw
+
+    Returns
+    -------
+    summary_df : pd.DataFrame with columns
+        [parameter, mean, median, std, ci_lower_2.5, ci_upper_97.5, ci_width_95]
+    samples_df : pd.DataFrame  (n_samples × n_params)  – posterior samples
+    unconstrained_df : pd.DataFrame  – same summary for the unconstrained flow
+    info : dict  – share of the unconstrained flow inside the prior, sampling method
+    """
+    x_tensor = torch.FloatTensor(x_obs_scaled)
+    set_eval_mode(posterior)
+
+    with torch.no_grad():
+        raw = posterior.sample((N_PILOT,), x=x_tensor, show_progress_bars=False,
+                               reject_outside_prior=False)
+    inside = _inside_prior(posterior, raw)
+    acceptance = float(inside.float().mean())
+    unconstrained_df = _summarise(raw.cpu().numpy(), param_names)
+    print(f"Unconstrained flow: {acceptance:.2%} of {N_PILOT:,} draws lie inside the prior "
+          f"(simulated parameter range)")
+
+    if acceptance >= MIN_ACCEPTANCE:
+        method = "rejection"
+        print(f"Drawing {n_samples:,} posterior samples (rejection outside the prior) …")
+        with torch.no_grad():
+            samples = posterior.sample((n_samples,), x=x_tensor, show_progress_bars=False,
+                                       reject_outside_prior=True)
+    elif isinstance(posterior, npe_count.MixedPosterior):
+        raise RuntimeError(f"only {acceptance:.4%} of the flow lies inside the prior; MCMC "
+                           "sampling is not implemented for count-parameter posteriors")
+    else:
+        method = "mcmc"
+        print(f"⚠ Too little mass inside the prior for rejection sampling: drawing "
+              f"{n_samples:,} samples with slice-sampling MCMC on the restricted density …")
+        samples = _sample_in_prior_mcmc(posterior, x_tensor, n_samples)
+
+    samples_np = samples.cpu().numpy()   # shape: (n_samples, n_params)
+    summary_df = _summarise(samples_np, param_names)
     samples_df = pd.DataFrame(samples_np, columns=param_names)
-    return summary_df, samples_df
+    info = {"share_of_unconstrained_flow_inside_prior": acceptance,
+            "n_pilot_draws": N_PILOT, "sampling_method": method, "n_samples": n_samples}
+    return summary_df, samples_df, unconstrained_df, info
 
 
 def display_posterior_summary(summary_df: pd.DataFrame):
@@ -506,7 +562,9 @@ def main():
     print(f"POSTERIOR SAMPLING  (n_samples={args.n_samples:,})")
     print("=" * 70)
 
-    summary_df, samples_df = sample_and_summarise(
+    torch.manual_seed(2026)
+    np.random.seed(2026)
+    summary_df, samples_df, unconstrained_df, sampling_info = sample_and_summarise(
         posterior, X_scaled, param_names, n_samples=args.n_samples
     )
 
@@ -523,8 +581,14 @@ def main():
 
     summary_df.to_csv(summary_path, index=False)
     samples_df.to_csv(samples_path, index=False)
+    unconstrained_df.to_csv(output_dir / "posterior_summary_unconstrained.csv", index=False)
+    with open(output_dir / "posterior_sampling.json", "w") as f:
+        json.dump(sampling_info, f, indent=2)
     print(f"\n✓ Posterior summary  → {summary_path}")
     print(f"✓ Raw samples        → {samples_path}")
+    print(f"✓ Unconstrained flow summary → {output_dir / 'posterior_summary_unconstrained.csv'} "
+          f"({sampling_info['share_of_unconstrained_flow_inside_prior']:.2%} inside the prior; "
+          f"sampled by {sampling_info['sampling_method']})")
 
     # Count parameter (e.g. n_gen): exact posterior probability of each value
     if config.get("count_param"):
@@ -545,6 +609,7 @@ def main():
     print("\n✓ Inference complete.\n")
     print("Key outputs:")
     print(f"  posterior_summary.csv   – mean, median, std, 95% CI per parameter")
+    print(f"  posterior_summary_unconstrained.csv – the same, without restricting to the prior")
     print(f"  posterior_samples.csv   – {args.n_samples:,} raw samples for further analysis")
     print(f"  posterior_distributions.png  – marginal density plots")
     if not args.no_pairplot:

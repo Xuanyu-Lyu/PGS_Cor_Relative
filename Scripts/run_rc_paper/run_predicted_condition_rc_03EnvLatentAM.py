@@ -31,22 +31,24 @@ PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predic
 # the observed data (results_npe_unweighted_03EnvLatentAM); all other parameters are
 # fixed at the values used to generate the NN training data (see FIXED_PARAMS in
 # DataGeneratingNN_Combined_03EnvLatentAM.py).
-# Posterior means updated 2026-10-08: NPE retrained without the embedding network
-# (nn_NPE/run_npe_pipeline.py). Previous values: nn_NPE/results_archive/
-# before_noembedding_20261007/posterior_mean_changes.csv. Caveat: the observed
-# correlations lie outside the simulated distribution, so these are extrapolations.
+# Posterior means updated 2026-10-13 (nn_NPE/run_npe_pipeline.py): the posterior is
+# restricted to the simulated parameter range. Previous values:
+# nn_NPE/results_archive/before_prior_fix_20261013/posterior_mean_changes.csv. None of
+# the unrestricted 03EnvLatentAM posterior lies inside the simulated range: the observed
+# correlations are outside what this model produces, so the estimates sit at the edge of
+# that range.
 CONDITION = {
     'name': 'Predicted_Condition_03EnvLatentAM',
     # Trait 1 (posterior means for vg1, f11; prop_h2_latent1 fixed)
     'prop_h2_latent1': 0.7,   # fixed
-    'vg1': 0.5927,
+    'vg1': 0.4218,
     'am11': 0.0,      # no direct AM on trait 1
-    'f11': -0.0293,   # posterior mean; outside the simulated range [0.05, 0.3]
+    'f11': 0.1576,    # posterior mean
     # Trait 2: latent AM (posterior means for am22, f22; prop_h2_latent2, vg2 fixed)
     'prop_h2_latent2': 1.0,   # fixed
     'vg2': 0.5,       # fixed
-    'am22': 0.7006,   # latent AM on trait 2 (single-trait mating)
-    'f22': 0.0535,
+    'am22': 0.7382,   # latent AM on trait 2 (single-trait mating)
+    'f22': 0.0523,
     's11': 0.5,       # fixed shared family environment
     's12': 0.5,       # fixed cross-trait shared environment
     's21': 0.5,       # fixed cross-trait shared environment
@@ -56,15 +58,15 @@ CONDITION = {
     'f21': 0.0,       # fixed: no cross-trait vertical transmission
     'am12': 0.0,
     'am21': 0.0,
-    'rg': 0.9060,   # posterior mean; outside the simulated range [0.3, 0.9]
+    'rg': 0.8829,   # posterior mean
     're': 0.1,        # fixed environmental correlation
 }
 
 # Simulation parameters
 TOTAL_ITERATIONS = 100  # Total iterations across all array tasks
 POP_SIZE = 40000
-N_GENERATIONS = 15  # Total generations (will save last 3)
-FINAL_GENS = [12, 13, 14]  # Final 3 generations to analyze
+N_GENERATIONS = 20  # Total generations (will save last 3); as in DataGeneratingNN_Combined_03EnvLatentAM.py
+FINAL_GENS = [17, 18, 19]  # Final 3 generations to analyze
 N_CV = 1000
 MAF_MIN = 0.01
 MAF_MAX = 0.5
@@ -233,6 +235,29 @@ def compute_pgs_from_components(measures_df):
     df['PGS2'] = df['TPO2'] + df['TMO2']
     return df
 
+def trim_to_final_generations(results):
+    """
+    HISTORY slice for FINAL_GENS, as in DataGeneratingNN_Combined_03EnvLatentAM.py.
+
+    The NN training data were computed on this 3-generation window (indexed 0, 1, 2),
+    so relationship paths cannot reach generations before FINAL_GENS[0]. MATES[i+1]
+    holds the pairs formed in generation i, so the window takes MATES at
+    FINAL_GENS + [FINAL_GENS[-1] + 1].
+    """
+    history = results['HISTORY']
+    n_mates = len(history['MATES'])
+    mates_idx = (FINAL_GENS + [FINAL_GENS[-1] + 1]
+                 if FINAL_GENS[-1] + 1 < n_mates else FINAL_GENS)
+    return {
+        'HISTORY': {
+            'PHEN':  [history['PHEN'][i] for i in FINAL_GENS],
+            'XO':    [history['XO'][i] for i in FINAL_GENS],
+            'XL':    [history['XL'][i] for i in FINAL_GENS],
+            'MATES': [history['MATES'][i] if i < n_mates else None for i in mates_idx],
+        }
+    }
+
+
 def extract_and_analyze_relationships(results, iteration, output_dir):
     """
     Extract measures and analyze correlations for different relationship types.
@@ -256,9 +281,10 @@ def extract_and_analyze_relationships(results, iteration, output_dir):
     # Extract measures for all individuals (needed for genealogy)
     # Use TPO/TMO components to compute PGS, plus Y1, Y2
     variables = ['Y1', 'Y2', 'TPO1', 'TPO2', 'TMO1', 'TMO2']
+    trimmed = trim_to_final_generations(results)
     
     try:
-        individual_measures = extract_individual_measures(results, variables)
+        individual_measures = extract_individual_measures(trimmed, variables)
         # Compute PGS from transmissible components
         individual_measures = compute_pgs_from_components(individual_measures)
         print(f"  ✓ Extracted measures for {len(individual_measures):,} individuals")
@@ -277,9 +303,9 @@ def extract_and_analyze_relationships(results, iteration, output_dir):
         try:
             # Find pairs for final three generations only
             pairs = find_relationship_pairs(
-                results, rel_path,
+                trimmed, rel_path,
                 output_format='long',
-                generations=FINAL_GENS
+                generations=[0, 1, 2],   # trimmed window = FINAL_GENS
             )
             
             if len(pairs) == 0:

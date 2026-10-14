@@ -39,15 +39,16 @@ PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predic
 # migration driven by trait 2.  Only am11 and move_p were free in the NPE fit
 # (posterior means below); everything else is fixed at the training-data values
 # from DataGeneratingNN_Combined_05AMmigration_noVT.py.
-# Posterior means updated 2026-10-08: NPE retrained without the embedding network
-# (nn_NPE/run_npe_pipeline.py). Previous values: nn_NPE/results_archive/
-# before_noembedding_20261007/posterior_mean_changes.csv. Caveat: the observed
-# correlations lie outside the simulated distribution, so these are extrapolations.
+# Posterior means updated 2026-10-13 (nn_NPE/run_npe_pipeline.py): the posterior is
+# restricted to the simulated parameter range, and only the rows of the am11 + move_p
+# design are used. Previous values:
+# nn_NPE/results_archive/before_prior_fix_20261013/posterior_mean_changes.csv. 99.5% of
+# the unrestricted 05AMmigration_noVT2 posterior lies inside the simulated range.
 CONDITION = {
     'name': 'Predicted_Condition_05AMmigration_noVT',
     # Free parameters (NPE posterior means)
-    'am11':   0.3532,  # within-island spousal correlation on EA (trait 1)
-    'move_p': 0.2920,  # fraction migrating per generation
+    'am11':   0.3578,  # within-island spousal correlation on EA (trait 1)
+    'move_p': 0.2630,  # fraction migrating per generation
     # Trait 1 (EA): fixed
     'prop_h2_latent1': 0.6,
     'vg1': 0.6,
@@ -220,6 +221,29 @@ def compute_pgs_from_components(measures_df):
     return df
 
 
+def trim_to_final_generations(results):
+    """
+    HISTORY slice for FINAL_GENS, as in DataGeneratingNN_Combined_05AMmigration_noVT.py.
+
+    The NN training data were computed on this 3-generation window (indexed 0, 1, 2),
+    so relationship paths cannot reach generations before FINAL_GENS[0]. MATES[i+1]
+    holds the pairs formed in generation i, so the window takes MATES at
+    FINAL_GENS + [FINAL_GENS[-1] + 1].
+    """
+    history = results['HISTORY']
+    n_mates = len(history['MATES'])
+    mates_idx = (FINAL_GENS + [FINAL_GENS[-1] + 1]
+                 if FINAL_GENS[-1] + 1 < n_mates else FINAL_GENS)
+    return {
+        'HISTORY': {
+            'PHEN':  [history['PHEN'][i] for i in FINAL_GENS],
+            'XO':    [history['XO'][i] for i in FINAL_GENS],
+            'XL':    [history['XL'][i] for i in FINAL_GENS],
+            'MATES': [history['MATES'][i] if i < n_mates else None for i in mates_idx],
+        }
+    }
+
+
 def extract_and_analyze_relationships(results, iteration, output_dir):
     """
     Extract individual measures and compute correlations for all relationship types.
@@ -228,9 +252,10 @@ def extract_and_analyze_relationships(results, iteration, output_dir):
     print(f"\n  Extracting individual measures...")
 
     variables = ['Y1', 'Y2', 'TPO1', 'TPO2', 'TMO1', 'TMO2']
+    trimmed = trim_to_final_generations(results)
 
     try:
-        individual_measures = extract_individual_measures(results, variables)
+        individual_measures = extract_individual_measures(trimmed, variables)
         individual_measures = compute_pgs_from_components(individual_measures)
         print(f"  ✓ Extracted measures for {len(individual_measures):,} individuals")
     except Exception as e:
@@ -245,9 +270,9 @@ def extract_and_analyze_relationships(results, iteration, output_dir):
     for rel_path in RELATIONSHIP_TYPES:
         try:
             pairs = find_relationship_pairs(
-                results, rel_path,
+                trimmed, rel_path,
                 output_format='long',
-                generations=FINAL_GENS,
+                generations=[0, 1, 2],   # trimmed window = FINAL_GENS
             )
 
             if len(pairs) == 0:

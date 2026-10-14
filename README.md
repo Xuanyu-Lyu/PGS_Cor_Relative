@@ -26,7 +26,7 @@ git submodule update --init --recursive
 ### The CURC / run_rc part — read this before submitting jobs
 
 The SLURM jobs under `Scripts/run_rc/` and `Scripts/run_rc_paper/` (e.g.
-`submit_predicted_condition_04AMmigration.sh`) import from `Scripts/SimulationFunctions/` at
+`submit_predicted_condition_04EAmigration.sh`) import from `Scripts/SimulationFunctions/` at
 runtime via `sys.path.insert(...)`. If the submodule hasn't been initialized or synced on the
 cluster checkout, those jobs will fail immediately with `ModuleNotFoundError: No module named
 'core_simulation'` (or similar).
