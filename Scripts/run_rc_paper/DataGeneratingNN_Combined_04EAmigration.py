@@ -153,6 +153,24 @@ def conditions_file():
     return PROJECT_BASE / "conditions_config.csv"
 
 
+def check_conditions_match_design(existing_df):
+    """Stop if an existing conditions_config.csv was not written for this design.
+
+    The conditions are deterministic (seed 42), so the file must equal a fresh draw.
+    Reusing another design's config silently simulates the wrong parameters.
+    """
+    expected = pd.DataFrame(generate_conditions(n_conditions=N_CONDITIONS_TOTAL, seed=42))
+    same = (list(existing_df.columns) == list(expected.columns)
+            and (existing_df["name"] == expected["name"]).all()
+            and np.allclose(existing_df.drop(columns="name").to_numpy(float),
+                            expected.drop(columns="name").to_numpy(float)))
+    if not same:
+        raise RuntimeError(
+            f"{conditions_file()} was written for a different parameter design "
+            f"(columns {list(existing_df.columns)}). Move {PROJECT_BASE} (config and "
+            f"Condition_* folders) out of the way and resubmit.")
+
+
 def save_conditions_config():
     """Write conditions CSV atomically so parallel tasks never read a partial file."""
     import time
@@ -165,6 +183,7 @@ def save_conditions_config():
             try:
                 existing_df = pd.read_csv(cfile)
                 if len(existing_df) == N_CONDITIONS_TOTAL:
+                    check_conditions_match_design(existing_df)
                     print(f"✓ Using existing conditions from {cfile} ({len(existing_df)} conditions)")
                     return
                 else:

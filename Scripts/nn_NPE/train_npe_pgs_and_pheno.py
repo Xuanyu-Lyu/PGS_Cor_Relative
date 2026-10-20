@@ -713,6 +713,11 @@ def main():
         print(f"  Available param columns: {[c for c in df.columns if c.startswith('param_')]}")
         return
     y = df[target_cols].values  # raw, unscaled – sbi handles internal normalization
+    constant = [p for p, col in zip(active_param_names, y.T) if np.ptp(col) <= 0]
+    if constant:
+        print(f"\n✗ ERROR: {constant} do not vary in the training data, so they cannot be "
+              f"estimated (was the data simulated under another parameter design?)")
+        return
 
     # ------------------------------------------------------------------
     # 5. Train/val/test split

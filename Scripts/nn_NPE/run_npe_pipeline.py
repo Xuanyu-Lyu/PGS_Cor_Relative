@@ -57,8 +57,11 @@ RUNS = {
     "01DirAM_AFE_PGSonly":         dict(data="01DirAM", trait=2, train_args=DIRAM_ROWS),
     "02AElatentAM":                dict(data="02AElatentAM", trait=1),
     "02AElatentAM_PGSonly":        dict(data="02AElatentAM", trait=1),
-    "03EnvLatentAM":               dict(data="03EnvLatentAM", trait=1),
-    "03EnvLatentAM_PGSonly":       dict(data="03EnvLatentAM", trait=1),
+    # nn_training_03EnvLatentAM_all.csv: the first-design training data plus the 2026-10
+    # cluster run, which reused the first design's conditions (labels restored from its
+    # deterministic config); conditions with two replicates stay in one split.
+    "03EnvLatentAM":               dict(data="03EnvLatentAM_all", trait=1, train_args=["--group_col", "Condition"]),
+    "03EnvLatentAM_PGSonly":       dict(data="03EnvLatentAM_all", trait=1, train_args=["--group_col", "Condition"]),
     # (05AMmigration_noVT, the 5-parameter fit, is not rerun: its training data are gone;
     #  results_npe_unweighted_05AMmigration_noVT is the earlier fit, kept as is.)
     "05AMmigration_noVT2":         dict(data="05AMmigration_noVT", trait=1, train_args=NOVT2_ROWS),

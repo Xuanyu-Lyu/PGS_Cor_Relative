@@ -31,21 +31,24 @@ PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predic
 # PGS correlations only (no phenotypic correlations), from results_npe_unweighted_03EnvLatentAM_PGSonly; all other parameters are
 # fixed at the values used to generate the NN training data (see FIXED_PARAMS in
 # DataGeneratingNN_Combined_03EnvLatentAM.py).
-# Posterior means updated 2026-10-13 (nn_NPE/run_npe_pipeline.py): the posterior is
-# restricted to the simulated parameter range. Previous values:
-# nn_NPE/results_archive/before_prior_fix_20261013/posterior_mean_changes.csv. 97.8% of
-# the unrestricted 03EnvLatentAM_PGSonly posterior lies inside the simulated range.
+# Posterior means updated 2026-10-19 (nn_NPE/run_npe_pipeline.py): the NPE was retrained
+# on nn_training_03EnvLatentAM_all.csv, the first training data of this design plus a
+# 2026-10 cluster run that reused this design's conditions (38,124 rows over 20,000
+# conditions; train/validation/test splits keep each condition together). The posterior
+# is restricted to the simulated parameter range. Previous values:
+# nn_NPE/results_archive/before_03_augmented_20261019/posterior_mean_changes.csv. 98.9%
+# of the unrestricted 03EnvLatentAM_PGSonly posterior lies inside the simulated range.
 CONDITION = {
     'name': 'Predicted_Condition_03EnvLatentAM_PGSonly',
     # Trait 1 (posterior means for vg1, f11; prop_h2_latent1 fixed)
     'prop_h2_latent1': 0.7,   # fixed
-    'vg1': 0.5937,
+    'vg1': 0.6051,
     'am11': 0.0,      # no direct AM on trait 1
-    'f11': 0.1782,     # posterior mean
+    'f11': 0.1667,     # posterior mean
     'prop_h2_latent2': 1.0,   # fixed
     'vg2': 0.5,       # fixed
-    'am22': 0.6868,   # latent AM on trait 2 (single-trait mating)
-    'f22': 0.1004,    # posterior mean
+    'am22': 0.6899,   # latent AM on trait 2 (single-trait mating)
+    'f22': 0.0998,    # posterior mean
     's11': 0.5,       # fixed shared family environment
     's12': 0.5,       # fixed cross-trait shared environment
     's21': 0.5,       # fixed cross-trait shared environment
@@ -55,7 +58,7 @@ CONDITION = {
     'f21': 0.0,       # fixed: no cross-trait vertical transmission
     'am12': 0.0,
     'am21': 0.0,
-    'rg': 0.5755,     # posterior mean
+    'rg': 0.5792,     # posterior mean
     're': 0.1,        # fixed environmental correlation
 }
 

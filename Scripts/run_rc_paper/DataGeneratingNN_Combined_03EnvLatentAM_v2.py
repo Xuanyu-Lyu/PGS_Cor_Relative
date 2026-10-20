@@ -15,9 +15,17 @@ This simulates one condition:
    Trait 2 genetic variance (vg2) is fixed at 0.5; trait 2 remains fully latent
    (prop_h2_latent2=1.0).
 
+Version 2 of condition 03 (training data nn_training_03EnvLatentAM_v2.csv). The first
+design (vg1, f11, f22, am22, rg sampled; prop_h2_latent1 = 0.7, re = 0.1) is
+DataGeneratingNN_Combined_03EnvLatentAM.py. This version writes to its own folder
+(03EnvLatentAM_v2) and refuses a conditions_config.csv written for another design:
+the first attempt at this design reused the first design's config and its condition
+folders, so no row of that output was simulated under this design.
+
 Usage:
-    python DataGeneratingNN_Combined_03EnvLatentAM.py
-    (Run via SLURM array job - see submit_datagenerating_nn_combined_03EnvLatentAM.sh)
+    python DataGeneratingNN_Combined_03EnvLatentAM_v2.py
+    (Run via SLURM array job - see submit_datagenerating_nn_combined_03EnvLatentAM_v2.sh,
+    then combine with submit_combine_nn_03EnvLatentAM_v2.sh)
 """
 
 import numpy as np
@@ -40,8 +48,8 @@ from postprocessing import extract_individual_measures, compute_correlations_for
 # CONFIGURATION
 # ============================================================================
 
-# Directory setup - using a new directory for this combined approach
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN_Paper/03EnvLatentAM")
+# Directory setup - its own folder, so no output of the first condition-03 design is mixed in
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN_Paper/03EnvLatentAM_v2")
 
 # Get SLURM array task ID
 SLURM_TASK_ID = int(os.environ.get('SLURM_ARRAY_TASK_ID', '1'))
@@ -132,6 +140,23 @@ def generate_conditions(n_conditions=N_CONDITIONS_TOTAL, seed=42):
 
 CONDITIONS_FILE = PROJECT_BASE / "conditions_config.csv"
 
+def check_conditions_match_design(existing_df):
+    """Stop if an existing conditions_config.csv was not written for this design.
+
+    The conditions are deterministic (seed 42), so the file must equal a fresh draw.
+    """
+    expected = pd.DataFrame(generate_conditions(n_conditions=N_CONDITIONS_TOTAL, seed=42))
+    same = (list(existing_df.columns) == list(expected.columns)
+            and (existing_df["name"] == expected["name"]).all()
+            and np.allclose(existing_df.drop(columns="name").to_numpy(float),
+                            expected.drop(columns="name").to_numpy(float)))
+    if not same:
+        raise RuntimeError(
+            f"{CONDITIONS_FILE} was written for a different parameter design "
+            f"(columns {list(existing_df.columns)}). Move {PROJECT_BASE} (config and "
+            f"Condition_* folders) out of the way and resubmit.")
+
+
 def save_conditions_config():
     """Write conditions CSV atomically so parallel tasks never read a partial file."""
     import time
@@ -143,6 +168,7 @@ def save_conditions_config():
             try:
                 existing_df = pd.read_csv(CONDITIONS_FILE)
                 if len(existing_df) == N_CONDITIONS_TOTAL:
+                    check_conditions_match_design(existing_df)
                     print(f"✓ Using existing conditions from {CONDITIONS_FILE} ({len(existing_df)} conditions)")
                     return
                 else:
