@@ -8,8 +8,8 @@ every condition subdirectory that has per-task CSV outputs:
 
 For the runs listed in NN_NPE_SUMMARIES, summary_statistics.csv is also copied to
 DATA_ROOT/to_nn_NPE/, laid out like Scripts/nn_NPE and named as Analysis_NPE.ipynb reads it
-(results_npe_unweighted_<fit>/<predictions folder>/summary_statistics_<fit>.csv), so one
-copy puts every summary in place:
+(results_npe_unweighted_<fit>/predictions/summary_statistics_<fit><run suffix>.csv, e.g.
+summary_statistics_02AElatentAM_ea4new.csv), so one copy puts every summary in place:
     rsync -av <curc>:/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/to_nn_NPE/ Scripts/nn_NPE/
 
 A condition directory is (re)compiled only if its combined outputs are
@@ -33,14 +33,15 @@ import pandas as pd
 # ── Directories ──────────────────────────────────────────────────────────────
 DATA_ROOT = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data")
 
-# predicted-condition folder -> (NPE fit, predictions folder) its summary belongs to in
-# Scripts/nn_NPE. Condition 01 simulates both traits; its summary is filed under the AE fit.
+# predicted-condition folder -> (NPE fit, run suffix) of its summary file in Scripts/nn_NPE,
+# the names Analysis_NPE.ipynb reads (v1: no suffix, v2: _v2). Condition 01 simulates both
+# traits; its summary is filed under the AE fit.
 NN_NPE_SUMMARIES = {
     # EA4 PGS run (estimates from predictions_ea4new/)
-    "predicted_condition_01DirAM_ea4new":       ("01DirAM_AE", "predictions_ea4new"),
-    "predicted_condition_02AElatentAM_ea4new":  ("02AElatentAM", "predictions_ea4new"),
-    "predicted_condition_03EnvLatentAM_ea4new": ("03EnvLatentAM", "predictions_ea4new"),
-    "predicted_condition_04EAmigration_ea4new": ("04EAmigration", "predictions_ea4new"),
+    "predicted_condition_01DirAM_ea4new":       ("01DirAM_AE", "_ea4new"),
+    "predicted_condition_02AElatentAM_ea4new":  ("02AElatentAM", "_ea4new"),
+    "predicted_condition_03EnvLatentAM_ea4new": ("03EnvLatentAM", "_ea4new"),
+    "predicted_condition_04EAmigration_ea4new": ("04EAmigration", "_ea4new"),
 }
 
 
@@ -175,8 +176,8 @@ def export_for_nn_npe(condition_dir: Path, data_root: Path) -> None:
     src = condition_dir / "summary_statistics.csv"
     if top not in NN_NPE_SUMMARIES or not src.exists():
         return
-    fit, pred_dir = NN_NPE_SUMMARIES[top]
-    rel = Path(f"results_npe_unweighted_{fit}") / pred_dir / f"summary_statistics_{fit}.csv"
+    fit, suffix = NN_NPE_SUMMARIES[top]
+    rel = Path(f"results_npe_unweighted_{fit}") / "predictions" / f"summary_statistics_{fit}{suffix}.csv"
     dest = data_root / "to_nn_NPE" / rel
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dest)

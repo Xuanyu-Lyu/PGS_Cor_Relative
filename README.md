@@ -557,10 +557,10 @@ python compile_predicted_condition.py              # after the jobs finish
 ```
 
 For the EA4 PGS runs, `compile_predicted_condition.py` also copies each summary to
-`Data/to_nn_NPE/results_npe_unweighted_<fit>/predictions_ea4new/summary_statistics_<fit>.csv`
-(`NN_NPE_SUMMARIES` lists the runs). The `rsync` of §4.1 then puts them in place. Earlier runs are
-not exported. Copy their compiled `summary_statistics.csv` by hand, under the name the notebook
-expects:
+`Data/to_nn_NPE/results_npe_unweighted_<fit>/predictions/summary_statistics_<fit>_ea4new.csv`,
+the name the notebook reads (`NN_NPE_SUMMARIES` lists the runs; condition 01 is filed under
+`01DirAM_AE`). The `rsync` of §4.1 then puts them in place. Earlier runs are not exported. Copy
+their compiled `summary_statistics.csv` by hand, under the name the notebook expects:
 
 - v1: `Scripts/nn_NPE/results_npe_unweighted_<fit>/predictions/summary_statistics_<fit>.csv`
 - v2: `summary_statistics_<fit>_v2.csv` in the same folder
@@ -587,9 +587,13 @@ and condition 05 keep the old-PGS estimates.
 ## 7. Analysis notebook
 
 `Scripts/nn_NPE/Analysis_NPE.ipynb` shows, for every condition:
-- a table of all estimated and fixed parameters for v1 and v2;
+- a table of all estimated and fixed parameters for v1 and v2 (the EA4 PGS run lists its
+  estimates above its figures);
 - one figure per run and trait: simulated PGS (blue) and phenotypic (teal) correlations for each
   relationship, with the observed values as diamonds and a box of MAE, RMSE and r.
+
+The EA4 PGS run (01–04, `"ea4new"`) is compared with `observed_correlations_PGS_ea4new.csv`
+(`OBS_PGS` in the first code cell), all other runs with `observed_correlations_PGS.csv`.
 
 Runs whose summary file is missing are skipped, so new runs appear once their files are copied in.
 `plot_condition("<cond>", "v2", values=True)` also prints each bar's value.
