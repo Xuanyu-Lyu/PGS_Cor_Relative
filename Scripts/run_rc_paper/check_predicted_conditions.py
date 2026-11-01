@@ -3,7 +3,8 @@ Check every run_predicted_condition_rc_*.py against the NPE fits and the trainin
 
 For each predicted-condition script:
   1. every estimated parameter equals the posterior mean of its NPE fit (4 decimals;
-     a count parameter such as n_gen equals the posterior mode);
+     a count parameter such as n_gen equals the posterior mode), read from the
+     predictions folder the script was set up from;
   2. every parameter sampled in the training data (generator PARAM_BOUNDS, and the
      param_ columns actually present in the training CSV after the run's row filter)
      is estimated by one of the fits, and every estimate lies inside that range;
@@ -26,17 +27,20 @@ import pandas as pd
 RC = Path(__file__).resolve().parent
 NPE = RC.parent / "nn_NPE"
 
-# script tag -> (generator tag, training CSV tag, NPE runs supplying its estimates)
+# script tag -> (generator tag, training CSV tag, NPE runs supplying its estimates,
+#                predictions folder of those runs)
+# predictions_ea4new: predicted from observed_correlations_PGS_ea4new.csv (updated EA4 PGS);
+# predictions: from observed_correlations_PGS.csv
 SCRIPTS = {
-    "01DirAM":                     ("01DirAM", "01DirAM", ["01DirAM_AE", "01DirAM_AFE"]),
-    "01DirAM_PGSonly":             ("01DirAM", "01DirAM", ["01DirAM_AE_PGSonly", "01DirAM_AFE_PGSonly"]),
-    "02AElatentAM":                ("02AElatentAM", "02AElatentAM", ["02AElatentAM"]),
-    "02AElatentAM_PGSonly":        ("02AElatentAM", "02AElatentAM", ["02AElatentAM_PGSonly"]),
-    "03EnvLatentAM":               ("03EnvLatentAM", "03EnvLatentAM_all", ["03EnvLatentAM"]),
-    "03EnvLatentAM_PGSonly":       ("03EnvLatentAM", "03EnvLatentAM_all", ["03EnvLatentAM_PGSonly"]),
-    "04EAmigration":               ("04EAmigration", "04EAmigration", ["04EAmigration"]),
-    "05AMmigration_noVT":          ("05AMmigration_noVT", "05AMmigration_noVT", ["05AMmigration_noVT2"]),
-    "05AMmigration_noVT2_PGSonly": ("05AMmigration_noVT", "05AMmigration_noVT", ["05AMmigration_noVT2_PGSonly"]),
+    "01DirAM":                     ("01DirAM", "01DirAM", ["01DirAM_AE", "01DirAM_AFE"], "predictions_ea4new"),
+    "01DirAM_PGSonly":             ("01DirAM", "01DirAM", ["01DirAM_AE_PGSonly", "01DirAM_AFE_PGSonly"], "predictions"),
+    "02AElatentAM":                ("02AElatentAM", "02AElatentAM", ["02AElatentAM"], "predictions_ea4new"),
+    "02AElatentAM_PGSonly":        ("02AElatentAM", "02AElatentAM", ["02AElatentAM_PGSonly"], "predictions"),
+    "03EnvLatentAM":               ("03EnvLatentAM", "03EnvLatentAM_all", ["03EnvLatentAM"], "predictions_ea4new"),
+    "03EnvLatentAM_PGSonly":       ("03EnvLatentAM", "03EnvLatentAM_all", ["03EnvLatentAM_PGSonly"], "predictions"),
+    "04EAmigration":               ("04EAmigration", "04EAmigration", ["04EAmigration"], "predictions_ea4new"),
+    "05AMmigration_noVT":          ("05AMmigration_noVT", "05AMmigration_noVT", ["05AMmigration_noVT2"], "predictions"),
+    "05AMmigration_noVT2_PGSonly": ("05AMmigration_noVT", "05AMmigration_noVT", ["05AMmigration_noVT2_PGSonly"], "predictions"),
 }
 
 
@@ -70,8 +74,8 @@ def main():
         if not ok:
             failures.append(msg)
 
-    for tag, (gen_tag, data_tag, runs) in SCRIPTS.items():
-        print(f"\n=== run_predicted_condition_rc_{tag}.py")
+    for tag, (gen_tag, data_tag, runs, pred_dir) in SCRIPTS.items():
+        print(f"\n=== run_predicted_condition_rc_{tag}.py ({pred_dir}/)")
         pred = assignments(RC / f"run_predicted_condition_rc_{tag}.py")
         gen = assignments(RC / f"DataGeneratingNN_Combined_{gen_tag}.py")
         cond, bounds, fixed = pred["CONDITION"], gen["PARAM_BOUNDS"], gen["FIXED_PARAMS"]
@@ -82,12 +86,12 @@ def main():
             run_dir = NPE / f"results_npe_unweighted_{run}"
             config = json.loads((run_dir / "config.json").read_text())
             row_filter = config.get("row_filter")
-            summary = pd.read_csv(run_dir / "predictions" / "posterior_summary.csv")
+            summary = pd.read_csv(run_dir / pred_dir / "posterior_summary.csv")
             means = dict(zip(summary["parameter"], summary["mean"]))
             if config.get("count_param"):
-                pmf = pd.read_csv(run_dir / "predictions" / "posterior_count_pmf.csv")
+                pmf = pd.read_csv(run_dir / pred_dir / "posterior_count_pmf.csv")
                 means[config["count_param"]] = int(pmf.iloc[pmf["probability"].idxmax(), 0])
-            sampling = run_dir / "predictions" / "posterior_sampling.json"
+            sampling = run_dir / pred_dir / "posterior_sampling.json"
             share = json.loads(sampling.read_text())["share_of_unconstrained_flow_inside_prior"] \
                 if sampling.exists() else float("nan")
             print(f"  {run}: {share:.1%} of the unconstrained posterior inside the simulated range")

@@ -250,6 +250,7 @@ def sample_and_summarise(
     x_obs_scaled: np.ndarray,
     param_names: list,
     n_samples: int = 1000,
+    n_samples_mcmc: int = None,
 ):
     """
     Draw posterior samples and compute summary statistics.
@@ -265,6 +266,7 @@ def sample_and_summarise(
     x_obs_scaled : np.ndarray  (1, n_features)  – already StandardScaler-transformed
     param_names : list of str
     n_samples : int  – number of posterior samples to draw
+    n_samples_mcmc : int or None  – samples to draw instead when sampling by MCMC
 
     Returns
     -------
@@ -297,6 +299,7 @@ def sample_and_summarise(
                            "sampling is not implemented for count-parameter posteriors")
     else:
         method = "mcmc"
+        n_samples = n_samples_mcmc or n_samples
         print(f"⚠ Too little mass inside the prior for rejection sampling: drawing "
               f"{n_samples:,} samples with slice-sampling MCMC on the restricted density …")
         samples = _sample_in_prior_mcmc(posterior, x_tensor, n_samples)
@@ -436,6 +439,9 @@ def main():
                         help="CSV file with phenotypic (Y1) correlations (columns: RelType, Correlation)")
     parser.add_argument("--n_samples", type=int, default=1000,
                         help="Number of posterior samples to draw (default: 1000)")
+    parser.add_argument("--n_samples_mcmc", type=int, default=None,
+                        help="Samples to draw instead when the posterior is sampled by MCMC "
+                             "(default: --n_samples)")
     parser.add_argument("--output", type=str, default=None,
                         help="Output directory for results (default: <model_dir>/predictions/)")
     parser.add_argument("--no_pairplot", action="store_true",
@@ -565,7 +571,8 @@ def main():
     torch.manual_seed(2026)
     np.random.seed(2026)
     summary_df, samples_df, unconstrained_df, sampling_info = sample_and_summarise(
-        posterior, X_scaled, param_names, n_samples=args.n_samples
+        posterior, X_scaled, param_names, n_samples=args.n_samples,
+        n_samples_mcmc=args.n_samples_mcmc,
     )
 
     # ------------------------------------------------------------------
@@ -610,7 +617,7 @@ def main():
     print("Key outputs:")
     print(f"  posterior_summary.csv   – mean, median, std, 95% CI per parameter")
     print(f"  posterior_summary_unconstrained.csv – the same, without restricting to the prior")
-    print(f"  posterior_samples.csv   – {args.n_samples:,} raw samples for further analysis")
+    print(f"  posterior_samples.csv   – {len(samples_df):,} raw samples for further analysis")
     print(f"  posterior_distributions.png  – marginal density plots")
     if not args.no_pairplot:
         print(f"  posterior_pairplot.png       – joint posterior pair-plot\n")

@@ -20,8 +20,9 @@ from postprocessing import save_simulation_results, extract_individual_measures,
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_01DirAM")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_01DirAM")
+# EA4 PGS run (2026-11): own folders, so the outputs at the old-PGS estimates stay apart
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_01DirAM_ea4new")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_01DirAM_ea4new")
 
 # Bivariate Direct AM condition (01_DirAM): two independent univariate models.
 # Trait 1: AE model (no vertical transmission, no social homogamy), direct AM via am11.
@@ -30,27 +31,28 @@ PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predic
 # Trait 1 (AE) free params are posterior means from results_npe_unweighted_01DirAM_AE.
 # Trait 2 (AFE) free params (prop_h2_latent2, vg2, f22, s22, am22) are posterior means
 # from results_npe_unweighted_01DirAM_AFE (vg2 and s22 are sampled in the training data).
-# Posterior means updated 2026-10-13 (nn_NPE/run_npe_pipeline.py): the posterior is
-# restricted to the simulated parameter range, and only the rows of the training-data
-# design (vg2 and s22 sampled, 15 generations) are used. Previous values:
-# nn_NPE/results_archive/before_prior_fix_20261013/posterior_mean_changes.csv. 46.1% of
-# the unrestricted 01DirAM_AE posterior lies inside the simulated range. Less than 0.01%
-# of the unrestricted 01DirAM_AFE posterior lies inside the simulated range: the
-# observed correlations are outside what this model produces, so the estimates sit at
-# the edge of that range.
+# Posterior means predicted 2026-11-01 from the updated EA4 PGS
+# (nn_NPE/observed_correlations_PGS_ea4new.csv) with the same NPE fits, which are not
+# retrained. Values: results_npe_unweighted_<fit>/predictions_ea4new/; the old-PGS values
+# are in predictions/ and nn_NPE/results_archive/ea4new_20261101/posterior_mean_changes.csv.
+# The posterior is restricted to the simulated parameter range, and only the rows of the
+# training-data design (vg2 and s22 sampled, 15 generations) are used. 50.4% of the
+# unrestricted 01DirAM_AE posterior lies inside the simulated range. 0.04% of the
+# unrestricted 01DirAM_AFE posterior lies inside it: the observed correlations are
+# outside what this model produces, so the estimates sit at the edge of that range.
 CONDITION = {
     'name': 'Predicted_Condition_01DirAM',
     # Trait 1: AE model (posterior means, results_npe_unweighted_01DirAM_AE)
-    'prop_h2_latent1': 0.6108,
-    'vg1': 0.2139,
-    'am11': 0.4369,
+    'prop_h2_latent1': 0.5432,
+    'vg1': 0.2158,
+    'am11': 0.4373,
     'f11': 0.0,       # AE model: no vertical transmission
     # Trait 2: AFE model (prop_h2_latent2/vg2/am22/f22/s22 posterior means, results_npe_unweighted_01DirAM_AFE)
-    'prop_h2_latent2': 0.6242,
-    'vg2': 0.2798,    # posterior mean
-    'am22': 0.4381,
-    'f22': 0.0077,    # posterior mean
-    's22': 0.2743,    # posterior mean
+    'prop_h2_latent2': 0.5505,
+    'vg2': 0.2428,    # posterior mean
+    'am22': 0.4409,
+    'f22': 0.0023,    # posterior mean
+    's22': 0.2613,    # posterior mean
     's11': 0.0,       # no shared family environment (trait 1)
     's12': 0.0,       # no cross-trait family environment
     's21': 0.0,       # no cross-trait family environment
@@ -81,9 +83,9 @@ MATE_ON_TRAIT = 'both'
 # Relationship types to analyze
 RELATIONSHIP_TYPES = [
     'S',        # Siblings
-    'HSFS',     # Half-siblings/first cousins once removed
-    'PSC',      # Parent-sibling-child (avuncular)
-    'PPSCC',    # First cousins
+    'HSFS',     # (never computed: the relationship finder has no H step)
+    'PSC',      # First cousins
+    'PPSCC',    # Second cousins
     'M',        # Mates
     'MS',       # Mate's sibling (sibling-in-law)
     'SMS',      # Sibling's mate's sibling
@@ -96,7 +98,19 @@ RELATIONSHIP_TYPES = [
     'MSMSC',
     'MSMSM',
     'SMSMSC',
-    'MSMSMS'
+    'MSMSMS',
+    # Added 2026-11-01: the other relationship types of the EA4 observed data
+    # (nn_NPE/observed_correlations_PGS_ea4new.csv); not in the NPE training data
+    'SC',       # Sibling's child (avuncular)
+    'PSCC',     # First cousin's child (first cousin once removed)
+    'MPS',      # Mate's parent's sibling
+    'MSCM',     # Mate's sibling's child's mate
+    'SMPS',     # Sibling's mate's parent's sibling
+    'MPSC',     # Mate's first cousin
+    'SCMP',     # Sibling's child's mate's parent
+    'MPSCM',    # Mate's first cousin's mate
+    'MSMPS',    # Mate's sibling's mate's parent's sibling
+    'SMSCM',    # Sibling's mate's sibling's child's mate
 ]
 
 def setup_matrices(params):

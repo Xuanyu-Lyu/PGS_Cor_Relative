@@ -20,8 +20,9 @@ from postprocessing import save_simulation_results, extract_individual_measures,
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_03EnvLatentAM")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_03EnvLatentAM")
+# EA4 PGS run (2026-11): own folders, so the outputs at the old-PGS estimates stay apart
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_03EnvLatentAM_ea4new")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_03EnvLatentAM_ea4new")
 
 # Bivariate AE + vertical transmission + latent AM condition (03_EnvLatentAM).
 # Single-trait phenotypic AM on trait 2 only (latent factor, am22);
@@ -31,27 +32,28 @@ PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predic
 # the observed data (results_npe_unweighted_03EnvLatentAM); all other parameters are
 # fixed at the values used to generate the NN training data (see FIXED_PARAMS in
 # DataGeneratingNN_Combined_03EnvLatentAM.py).
-# Posterior means updated 2026-10-19 (nn_NPE/run_npe_pipeline.py): the NPE was retrained
-# on nn_training_03EnvLatentAM_all.csv, the first training data of this design plus a
-# 2026-10 cluster run that reused this design's conditions (38,124 rows over 20,000
-# conditions; train/validation/test splits keep each condition together). The posterior
-# is restricted to the simulated parameter range. Previous values:
-# nn_NPE/results_archive/before_03_augmented_20261019/posterior_mean_changes.csv. None
-# of the unrestricted 03EnvLatentAM posterior lies inside the simulated range: the
-# observed correlations are outside what this model produces, so the estimates sit at
-# the edge of that range.
+# The NPE was trained (2026-10-19) on nn_training_03EnvLatentAM_all.csv, the first
+# training data of this design plus a 2026-10 cluster run that reused this design's
+# conditions (38,124 rows over 20,000 conditions; train/validation/test splits keep each
+# condition together). Posterior means predicted 2026-11-01 from the updated EA4 PGS
+# (nn_NPE/observed_correlations_PGS_ea4new.csv) with the same NPE fits, which are not
+# retrained. Values: results_npe_unweighted_<fit>/predictions_ea4new/; the old-PGS values
+# are in predictions/ and nn_NPE/results_archive/ea4new_20261101/posterior_mean_changes.csv.
+# The posterior is restricted to the simulated parameter range. None of the unrestricted
+# 03EnvLatentAM posterior lies inside that range: the observed correlations are outside
+# what this model produces, so the estimates sit at its edge (rg at its upper bound).
 CONDITION = {
     'name': 'Predicted_Condition_03EnvLatentAM',
     # Trait 1 (posterior means for vg1, f11; prop_h2_latent1 fixed)
     'prop_h2_latent1': 0.7,   # fixed
-    'vg1': 0.7138,
+    'vg1': 0.7078,
     'am11': 0.0,      # no direct AM on trait 1
-    'f11': 0.0938,    # posterior mean
+    'f11': 0.2131,    # posterior mean
     # Trait 2: latent AM (posterior means for am22, f22; prop_h2_latent2, vg2 fixed)
     'prop_h2_latent2': 1.0,   # fixed
     'vg2': 0.5,       # fixed
-    'am22': 0.7329,   # latent AM on trait 2 (single-trait mating)
-    'f22': 0.0543,
+    'am22': 0.7357,   # latent AM on trait 2 (single-trait mating)
+    'f22': 0.0598,
     's11': 0.5,       # fixed shared family environment
     's12': 0.5,       # fixed cross-trait shared environment
     's21': 0.5,       # fixed cross-trait shared environment
@@ -61,7 +63,7 @@ CONDITION = {
     'f21': 0.0,       # fixed: no cross-trait vertical transmission
     'am12': 0.0,
     'am21': 0.0,
-    'rg': 0.8955,   # posterior mean
+    'rg': 0.8981,   # posterior mean
     're': 0.1,        # fixed environmental correlation
 }
 
@@ -83,9 +85,9 @@ MATE_ON_TRAIT = 2
 # Relationship types to analyze
 RELATIONSHIP_TYPES = [
     'S',        # Siblings
-    'HSFS',     # Half-siblings/first cousins once removed
-    'PSC',      # Parent-sibling-child (avuncular)
-    'PPSCC',    # First cousins
+    'HSFS',     # (never computed: the relationship finder has no H step)
+    'PSC',      # First cousins
+    'PPSCC',    # Second cousins
     'M',        # Mates
     'MS',       # Mate's sibling (sibling-in-law)
     'SMS',      # Sibling's mate's sibling
@@ -98,7 +100,19 @@ RELATIONSHIP_TYPES = [
     'MSMSC',
     'MSMSM',
     'SMSMSC',
-    'MSMSMS'
+    'MSMSMS',
+    # Added 2026-11-01: the other relationship types of the EA4 observed data
+    # (nn_NPE/observed_correlations_PGS_ea4new.csv); not in the NPE training data
+    'SC',       # Sibling's child (avuncular)
+    'PSCC',     # First cousin's child (first cousin once removed)
+    'MPS',      # Mate's parent's sibling
+    'MSCM',     # Mate's sibling's child's mate
+    'SMPS',     # Sibling's mate's parent's sibling
+    'MPSC',     # Mate's first cousin
+    'SCMP',     # Sibling's child's mate's parent
+    'MPSCM',    # Mate's first cousin's mate
+    'MSMPS',    # Mate's sibling's mate's parent's sibling
+    'SMSCM',    # Sibling's mate's sibling's child's mate
 ]
 
 def setup_matrices(params):

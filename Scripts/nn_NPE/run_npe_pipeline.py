@@ -10,13 +10,15 @@ For each run in ``RUNS``:
      feature and parameter lists in ``run_specs/<run>/`` (copied into the run folder);
   3. predict the observed correlations (``observed_correlations_PGS.csv`` /
      ``observed_correlations_pheno.csv``) with ``predict_npe_pgs_and_pheno.py``;
+     ``--observed_pgs`` swaps in another PGS file and ``--pred_dir`` writes those
+     predictions to their own folder, next to ``predictions/``;
   4. carry over the predicted-condition ``summary_statistics_*.csv`` files from the
      archived ``predictions/`` folder, so Analysis_NPE.ipynb keeps working. Those
      files come from simulations at the *previous* posterior means and stay stale
      until the run_rc_paper predicted-condition jobs are rerun.
 
 Finally, writes ``results_archive/<archive_tag>/posterior_mean_changes.csv`` with the
-old and new posterior means side by side.
+old (``predictions/``) and new posterior means side by side.
 
 Usage
 -----
@@ -24,6 +26,11 @@ Usage
     python run_npe_pipeline.py --runs 02AElatentAM 02AElatentAM_PGSonly
     python run_npe_pipeline.py --skip_train            # re-predict existing runs only
     python run_npe_pipeline.py --jobs 4                # train four runs at a time
+    # updated EA4 PGS: re-predict the PGS + pheno fits of 01-04 into predictions_ea4new/
+    python run_npe_pipeline.py --skip_train --jobs 5 \
+        --runs 01DirAM_AE 01DirAM_AFE 02AElatentAM 03EnvLatentAM 04EAmigration \
+        --observed_pgs observed_correlations_PGS_ea4new.csv --pred_dir predictions_ea4new \
+        --archive_tag ea4new_<YYYYMMDD>
 """
 
 from __future__ import annotations
@@ -127,13 +134,15 @@ def process_run(run, args, archive, threads):
               "--features_file", out / "features.txt", "--params_file", out / "params.txt",
               *spec.get("train_args", []), *args.extra_train_args], log, threads)
 
+    new_preds = out / args.pred_dir
     call([sys.executable, "predict_npe_pgs_and_pheno.py", "--model_dir", out.name,
-          "--correlations_pgs", "observed_correlations_PGS.csv",
+          "--correlations_pgs", args.observed_pgs,
           "--correlations_pheno", "observed_correlations_pheno.csv",
-          "--n_samples", args.n_samples, "--trait", spec["trait"], "--no_pairplot"], log, threads)
+          "--n_samples", args.n_samples, "--n_samples_mcmc", args.n_samples_mcmc,
+          "--trait", spec["trait"], "--output", new_preds, "--no_pairplot"], log, threads)
 
-    new_preds = out / "predictions"
-    for f in old_sumstats:
+    # predicted-condition summaries belong to the predictions they were simulated from
+    for f in old_sumstats if args.pred_dir == "predictions" else []:
         if not (new_preds / f.name).exists():
             shutil.copy(f, new_preds / f.name)
             print(f"  carried over {f.name} (from simulations at the previous posterior means)")
@@ -155,6 +164,12 @@ def main():
                     help="archive folder name (default: before_<YYYYMMDD-HHMM>)")
     ap.add_argument("--skip_train", action="store_true", help="only re-run predictions")
     ap.add_argument("--n_samples", type=int, default=4000, help="posterior samples for prediction")
+    ap.add_argument("--n_samples_mcmc", type=int, default=20000,
+                    help="posterior samples for fits sampled by MCMC")
+    ap.add_argument("--observed_pgs", default="observed_correlations_PGS.csv",
+                    help="observed PGS correlations to predict (RelType, Correlation)")
+    ap.add_argument("--pred_dir", default="predictions",
+                    help="folder in each run folder that the predictions go to")
     ap.add_argument("--jobs", type=int, default=1, help="runs trained in parallel")
     ap.add_argument("--extra_train_args", nargs=argparse.REMAINDER, default=[],
                     help="passed through to train_npe_pgs_and_pheno.py (put last)")

@@ -35,23 +35,29 @@ from postprocessing import save_simulation_results, extract_individual_measures,
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_04EAmigration")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_04EAmigration")
+# EA4 PGS run (2026-11): own folders, so the outputs at the old-PGS estimates stay apart
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_04EAmigration_ea4new")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_04EAmigration_ea4new")
 
 # Condition 04EAmigration: EA-driven island migration, no AM, no VT.
 # NPE fit: nn_NPE/results_npe_unweighted_04EAmigration (trained 2026-10-13 on
-# nn_training_04EAmigration.csv). n_gen is the posterior mode (P(n_gen=4) = 0.9999);
-# the continuous parameters are posterior means.
-# Caveat: the observed correlations lie outside the simulated distribution
+# nn_training_04EAmigration.csv), predicted 2026-11-01 from the updated EA4 PGS
+# (nn_NPE/observed_correlations_PGS_ea4new.csv) with the same NPE fit, which is not
+# retrained. Values: results_npe_unweighted_<fit>/predictions_ea4new/; the old-PGS values
+# are in predictions/ and nn_NPE/results_archive/ea4new_20261101/posterior_mean_changes.csv.
+# n_gen is the posterior mode (P(n_gen=4) = 0.99998); the continuous parameters are
+# posterior means.
+# Caveat (old PGS): the observed correlations lie outside the simulated distribution
 # (Mahalanobis distance 27 vs at most 11 among the training rows; sibling PGS
 # r = 0.559 vs ~0.51 in simulations near these values), so these are
-# extrapolations and the very narrow posterior intervals are overconfident.
+# extrapolations and the very narrow posterior intervals are overconfident. The
+# updated PGS barely changes that distance.
 CONDITION = {
     'name': 'Predicted_Condition_04EAmigration',
     # Estimated parameters
-    'move_p':          0.4538,  # fraction of each sex per island migrating per generation
-    'vg1':             0.3069,  # EA total genetic variance
-    'prop_h2_latent1': 0.7763,  # share of EA genetic variance NOT captured by the PGS
+    'move_p':          0.4541,  # fraction of each sex per island migrating per generation
+    'vg1':             0.3118,  # EA total genetic variance
+    'prop_h2_latent1': 0.7132,  # share of EA genetic variance NOT captured by the PGS
     'n_gen':           4,       # generations since the random founders
     # Trait 2 (dummy): fully latent, drives nothing (fixed)
     'vg2': 0.5,
@@ -77,9 +83,9 @@ MAF_MAX     = 0.5
 # Relationship types to analyze
 RELATIONSHIP_TYPES = [
     'S',        # Siblings
-    'HSFS',     # Half-siblings / first cousins once removed
-    'PSC',      # Avuncular
-    'PPSCC',    # First cousins
+    'HSFS',     # (never computed: the relationship finder has no H step)
+    'PSC',      # First cousins
+    'PPSCC',    # Second cousins
     'M',        # Mates
     'MS',       # Mate's sibling
     'SMS',      # Sibling's mate's sibling
@@ -93,6 +99,18 @@ RELATIONSHIP_TYPES = [
     'MSMSM',
     'SMSMSC',
     'MSMSMS',
+    # Added 2026-11-01: the other relationship types of the EA4 observed data
+    # (nn_NPE/observed_correlations_PGS_ea4new.csv); not in the NPE training data
+    'SC',       # Sibling's child (avuncular)
+    'PSCC',     # First cousin's child (first cousin once removed)
+    'MPS',      # Mate's parent's sibling
+    'MSCM',     # Mate's sibling's child's mate
+    'SMPS',     # Sibling's mate's parent's sibling
+    'MPSC',     # Mate's first cousin
+    'SCMP',     # Sibling's child's mate's parent
+    'MPSCM',    # Mate's first cousin's mate
+    'MSMPS',    # Mate's sibling's mate's parent's sibling
+    'SMSCM',    # Sibling's mate's sibling's child's mate
 ]
 
 
