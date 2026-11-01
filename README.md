@@ -387,10 +387,15 @@ bash submit_all_wider.sh                          # 01-04: each array + a combin
 bash submit_all_wider.sh 02AElatentAM_wider       # or only some conditions
 ```
 
-The combine job writes `Data/DataGeneratingNN_Paper_wider/nn_training_combined_<cond>_wider.csv`.
-It writes nothing while a condition is missing; rerun the failed tasks, then
-`sbatch submit_combine_nn_wider.sh <cond>_wider`. Copy the result to
-`Scripts/nn_NPE/nn_training_<cond>_wider.csv`.
+The combine job writes `Data/to_nn_NPE/nn_training_<cond>_wider.csv`, the name `Scripts/nn_NPE`
+trains on. It writes nothing while a condition is missing; rerun the failed tasks, then
+`sbatch submit_combine_nn_wider.sh <cond>_wider`. `Data/to_nn_NPE/` mirrors `Scripts/nn_NPE`
+(the predicted-condition summaries go there too, §6.3), so one command copies everything into
+place:
+
+```bash
+rsync -av <curc>:/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/to_nn_NPE/ Scripts/nn_NPE/
+```
 
 ## 5. Neural posterior estimation
 
@@ -551,12 +556,14 @@ bash submit_all_predicted_conditions.sh submit_predicted_condition_*_PGSonly.sh 
 python compile_predicted_condition.py              # after the jobs finish
 ```
 
-Copy each compiled `summary_statistics.csv` into the fit's results folder under the name the
-notebook expects:
+For the EA4 PGS runs, `compile_predicted_condition.py` also copies each summary to
+`Data/to_nn_NPE/results_npe_unweighted_<fit>/predictions_ea4new/summary_statistics_<fit>.csv`
+(`NN_NPE_SUMMARIES` lists the runs). The `rsync` of §4.1 then puts them in place. Earlier runs are
+not exported. Copy their compiled `summary_statistics.csv` by hand, under the name the notebook
+expects:
 
 - v1: `Scripts/nn_NPE/results_npe_unweighted_<fit>/predictions/summary_statistics_<fit>.csv`
 - v2: `summary_statistics_<fit>_v2.csv` in the same folder
-- EA4 PGS run (01–04): `Scripts/nn_NPE/results_npe_unweighted_<fit>/predictions_ea4new/summary_statistics_<fit>.csv`
 
 ### 6.4 Runs v1 and v2
 

@@ -18,8 +18,11 @@ condition level; keep 'Condition' as the group column when training.
 Usage:
     python CombineNN_Data_Large_wider.py <condition> [--split] [--test_size 0.2] [--allow_incomplete]
 
-Output (Data/DataGeneratingNN_Paper_wider/): nn_training_combined_<condition>.csv; copy it to
-Scripts/nn_NPE/nn_training_<condition>.csv for training.
+Output: Data/to_nn_NPE/nn_training_<condition>.csv, the name Scripts/nn_NPE trains on.
+Data/to_nn_NPE/ is laid out like Scripts/nn_NPE (compile_predicted_condition.py writes the
+predicted-condition summaries there too), so one copy brings everything into place:
+    rsync -av <curc>:/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/to_nn_NPE/ Scripts/nn_NPE/
+The collection summary and the --split files stay in Data/DataGeneratingNN_Paper_wider/.
 """
 
 import argparse
@@ -33,6 +36,7 @@ import pandas as pd
 # ============================================================================
 
 OUTPUT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/DataGeneratingNN_Paper_wider")
+NN_NPE_DIR = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/to_nn_NPE")   # mirrors Scripts/nn_NPE
 CONDITIONS = ["01DirAM_wider", "02AElatentAM_wider", "03EnvLatentAM_wider", "04EAmigration_wider"]
 ID_COLS = ["Iteration", "Condition", "Sample"]
 
@@ -125,9 +129,10 @@ def create_train_test_split(df, test_size=0.2, random_state=42):
 
 
 def save_datasets(tag, combined_df, train_df=None, test_df=None):
-    """Save the combined and split datasets to OUTPUT_BASE."""
+    """Save the combined dataset to NN_NPE_DIR and the split datasets to OUTPUT_BASE."""
     print("\nSaving datasets...")
-    combined_file = OUTPUT_BASE / f"nn_training_combined_{tag}.csv"
+    NN_NPE_DIR.mkdir(parents=True, exist_ok=True)
+    combined_file = NN_NPE_DIR / f"nn_training_{tag}.csv"
     combined_df.to_csv(combined_file, index=False)
     print(f"✓ Saved combined dataset to {combined_file} {combined_df.shape}")
     if train_df is not None and test_df is not None:

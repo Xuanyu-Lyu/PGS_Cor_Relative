@@ -6,6 +6,12 @@ every condition subdirectory that has per-task CSV outputs:
   - task_XX_correlations.csv          -> all_correlations.csv + summary_statistics.csv
   - mate_pgs_correlations_task_XX.csv -> mate_pgs_correlations_all.csv
 
+For the runs listed in NN_NPE_SUMMARIES, summary_statistics.csv is also copied to
+DATA_ROOT/to_nn_NPE/, laid out like Scripts/nn_NPE and named as Analysis_NPE.ipynb reads it
+(results_npe_unweighted_<fit>/<predictions folder>/summary_statistics_<fit>.csv), so one
+copy puts every summary in place:
+    rsync -av <curc>:/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/to_nn_NPE/ Scripts/nn_NPE/
+
 A condition directory is (re)compiled only if its combined outputs are
 missing or older than the newest per-task file found in it, so this script
 can be re-run at any time (e.g. periodically while array jobs are still
@@ -18,6 +24,7 @@ Usage:
 """
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
@@ -25,6 +32,16 @@ import pandas as pd
 
 # ── Directories ──────────────────────────────────────────────────────────────
 DATA_ROOT = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data")
+
+# predicted-condition folder -> (NPE fit, predictions folder) its summary belongs to in
+# Scripts/nn_NPE. Condition 01 simulates both traits; its summary is filed under the AE fit.
+NN_NPE_SUMMARIES = {
+    # EA4 PGS run (estimates from predictions_ea4new/)
+    "predicted_condition_01DirAM_ea4new":       ("01DirAM_AE", "predictions_ea4new"),
+    "predicted_condition_02AElatentAM_ea4new":  ("02AElatentAM", "predictions_ea4new"),
+    "predicted_condition_03EnvLatentAM_ea4new": ("03EnvLatentAM", "predictions_ea4new"),
+    "predicted_condition_04EAmigration_ea4new": ("04EAmigration", "predictions_ea4new"),
+}
 
 
 def find_condition_dirs(data_root: Path):
@@ -152,6 +169,21 @@ def compile_mate_pgs(condition_dir: Path, force: bool) -> bool:
     return True
 
 
+def export_for_nn_npe(condition_dir: Path, data_root: Path) -> None:
+    """Copy summary_statistics.csv to data_root/to_nn_NPE under the name Scripts/nn_NPE expects."""
+    top = condition_dir.relative_to(data_root).parts[0]
+    src = condition_dir / "summary_statistics.csv"
+    if top not in NN_NPE_SUMMARIES or not src.exists():
+        return
+    fit, pred_dir = NN_NPE_SUMMARIES[top]
+    rel = Path(f"results_npe_unweighted_{fit}") / pred_dir / f"summary_statistics_{fit}.csv"
+    dest = data_root / "to_nn_NPE" / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dest)
+    n_iter = pd.read_csv(src)["N_Iterations"].max()
+    print(f"\n  → for Scripts/nn_NPE: to_nn_NPE/{rel} ({n_iter} replicates)")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dir", type=Path, default=DATA_ROOT,
@@ -191,6 +223,8 @@ def main() -> None:
 
         print("\n── Mate PGS correlations ──")
         updated_mate = compile_mate_pgs(condition_dir, args.force)
+
+        export_for_nn_npe(condition_dir, args.dir)
 
         if updated_corr or updated_mate:
             n_updated += 1

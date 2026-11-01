@@ -14,7 +14,8 @@
 #   jid=$(sbatch --parsable submit_datagenerating_nn_combined_02AElatentAM_wider.sh)
 #   sbatch --dependency=afterany:$jid submit_combine_nn_wider.sh 02AElatentAM_wider
 # Writes nothing if any configured condition is missing (rerun the failed tasks, then
-# submit this again). Output: Data/DataGeneratingNN_Paper_wider/nn_training_combined_<condition>.csv
+# submit this again). Output: Data/to_nn_NPE/nn_training_<condition>.csv, named as in
+# Scripts/nn_NPE (rsync Data/to_nn_NPE/ into Scripts/nn_NPE/).
 
 set -euo pipefail
 if [ $# -ne 1 ]; then
