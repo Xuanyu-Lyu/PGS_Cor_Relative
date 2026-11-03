@@ -35,29 +35,32 @@ from postprocessing import save_simulation_results, extract_individual_measures,
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-# EA4 PGS run (2026-11): own folders, so the outputs at the old-PGS estimates stay apart
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_04EAmigration_ea4new")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_04EAmigration_ea4new")
+# EA4 PGS + updated EA phenotypic correlations (2026-11-02): own folders, apart from the
+# outputs of the earlier runs (_ea4new: EA4 PGS with the old phenotypic correlations)
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_04EAmigration_ea4pheno")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_04EAmigration_ea4pheno")
 
 # Condition 04EAmigration: EA-driven island migration, no AM, no VT.
 # NPE fit: nn_NPE/results_npe_unweighted_04EAmigration (trained 2026-10-13 on
-# nn_training_04EAmigration.csv), predicted 2026-11-01 from the updated EA4 PGS
-# (nn_NPE/observed_correlations_PGS_ea4new.csv) with the same NPE fit, which is not
-# retrained. Values: results_npe_unweighted_<fit>/predictions_ea4new/; the old-PGS values
-# are in predictions/ and nn_NPE/results_archive/ea4new_20261101/posterior_mean_changes.csv.
-# n_gen is the posterior mode (P(n_gen=4) = 0.99998); the continuous parameters are
+# nn_training_04EAmigration.csv), predicted 2026-11-02 from the updated EA4 PGS
+# and EA phenotypic correlations (nn_NPE/observed_correlations_PGS_ea4new.csv,
+# observed_correlations_pheno_021126.csv) with the same NPE fit, which is not retrained.
+# Values: results_npe_unweighted_<fit>/predictions_ea4pheno/; those from the EA4 PGS alone
+# are in predictions_ea4new/, the old-PGS ones in predictions/; the old-PGS values and these
+# side by side: nn_NPE/results_archive/ea4pheno_20261102/posterior_mean_changes.csv.
+# n_gen is the posterior mode (P(n_gen=4) = 0.99996); the continuous parameters are
 # posterior means.
 # Caveat (old PGS): the observed correlations lie outside the simulated distribution
 # (Mahalanobis distance 27 vs at most 11 among the training rows; sibling PGS
 # r = 0.559 vs ~0.51 in simulations near these values), so these are
 # extrapolations and the very narrow posterior intervals are overconfident. The
-# updated PGS barely changes that distance.
+# updated PGS and phenotypic correlations barely change that distance (26).
 CONDITION = {
     'name': 'Predicted_Condition_04EAmigration',
     # Estimated parameters
-    'move_p':          0.4541,  # fraction of each sex per island migrating per generation
-    'vg1':             0.3118,  # EA total genetic variance
-    'prop_h2_latent1': 0.7132,  # share of EA genetic variance NOT captured by the PGS
+    'move_p':          0.4454,  # fraction of each sex per island migrating per generation
+    'vg1':             0.3294,  # EA total genetic variance
+    'prop_h2_latent1': 0.7136,  # share of EA genetic variance NOT captured by the PGS
     'n_gen':           4,       # generations since the random founders
     # Trait 2 (dummy): fully latent, drives nothing (fixed)
     'vg2': 0.5,

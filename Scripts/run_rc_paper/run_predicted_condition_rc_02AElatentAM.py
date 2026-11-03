@@ -20,9 +20,10 @@ from postprocessing import save_simulation_results, extract_individual_measures,
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-# EA4 PGS run (2026-11): own folders, so the outputs at the old-PGS estimates stay apart
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM_ea4new")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM_ea4new")
+# EA4 PGS + updated EA phenotypic correlations (2026-11-02): own folders, apart from the
+# outputs of the earlier runs (_ea4new: EA4 PGS with the old phenotypic correlations)
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM_ea4pheno")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM_ea4pheno")
 
 # Bivariate AE + latent AM condition (02_AElatentAM).
 # Single-trait phenotypic AM on trait 2 only (latent factor, am22);
@@ -32,24 +33,26 @@ PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predic
 # NPE fit to the observed data (results_npe_unweighted_02AElatentAM); prop_h2_latent2
 # and vg2 are fixed at the values used to generate the NN training data (trait 2 is
 # 100% latent genetic variance, vg2=0.5 — see DataGeneratingNN_Combined_02AElatentAM.py).
-# Posterior means predicted 2026-11-01 from the updated EA4 PGS
-# (nn_NPE/observed_correlations_PGS_ea4new.csv) with the same NPE fits, which are not
-# retrained. Values: results_npe_unweighted_<fit>/predictions_ea4new/; the old-PGS values
-# are in predictions/ and nn_NPE/results_archive/ea4new_20261101/posterior_mean_changes.csv.
+# Posterior means predicted 2026-11-02 from the updated EA4 PGS
+# and EA phenotypic correlations (nn_NPE/observed_correlations_PGS_ea4new.csv,
+# observed_correlations_pheno_021126.csv) with the same NPE fits, which are not retrained.
+# Values: results_npe_unweighted_<fit>/predictions_ea4pheno/; those from the EA4 PGS alone
+# are in predictions_ea4new/, the old-PGS ones in predictions/; the old-PGS values and these
+# side by side: nn_NPE/results_archive/ea4pheno_20261102/posterior_mean_changes.csv.
 # The posterior is restricted to the simulated parameter range. None of the unrestricted
 # 02AElatentAM posterior lies inside that range: the observed correlations are outside
 # what this model produces, so the estimates sit at its edge (am22 at its upper bound).
 CONDITION = {
     'name': 'Predicted_Condition_02AElatentAM',
     # Trait 1: AE model, latent genetic variance (posterior mean)
-    'prop_h2_latent1': 0.7929,
-    'vg1': 0.2285,   # posterior mean
+    'prop_h2_latent1': 0.7894,
+    'vg1': 0.2296,   # posterior mean
     'am11': 0.0,      # no direct AM on trait 1
     'f11': 0.0,       # AE model: no vertical transmission
     # Trait 2: fixed (not estimated — updated data-generating script fixes these)
     'prop_h2_latent2': 1.0,
     'vg2': 0.5,
-    'am22': 0.7451,   # latent AM on trait 2 (single-trait mating)
+    'am22': 0.7449,   # latent AM on trait 2 (single-trait mating)
     'f22': 0.0,       # AE model: no vertical transmission
     's11': 0.0,       # no shared family environment (trait 1)
     's12': 0.0,       # no cross-trait family environment
@@ -60,8 +63,8 @@ CONDITION = {
     'f21': 0.0,
     'am12': 0.0,
     'am21': 0.0,
-    'rg': 0.8219,     # genetic correlation
-    're': 0.5523,   # posterior mean
+    'rg': 0.8157,     # genetic correlation
+    're': 0.5425,   # posterior mean
 }
 
 # Simulation parameters

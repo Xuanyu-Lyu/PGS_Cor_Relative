@@ -29,16 +29,17 @@ NPE = RC.parent / "nn_NPE"
 
 # script tag -> (generator tag, training CSV tag, NPE runs supplying its estimates,
 #                predictions folder of those runs)
-# predictions_ea4new: predicted from observed_correlations_PGS_ea4new.csv (updated EA4 PGS);
-# predictions: from observed_correlations_PGS.csv
+# predictions_ea4pheno: predicted from observed_correlations_PGS_ea4new.csv (updated EA4 PGS) and
+# observed_correlations_pheno_021126.csv (updated EA phenotypic correlations);
+# predictions: from observed_correlations_PGS.csv and observed_correlations_pheno.csv
 SCRIPTS = {
-    "01DirAM":                     ("01DirAM", "01DirAM", ["01DirAM_AE", "01DirAM_AFE"], "predictions_ea4new"),
+    "01DirAM":                     ("01DirAM", "01DirAM", ["01DirAM_AE", "01DirAM_AFE"], "predictions_ea4pheno"),
     "01DirAM_PGSonly":             ("01DirAM", "01DirAM", ["01DirAM_AE_PGSonly", "01DirAM_AFE_PGSonly"], "predictions"),
-    "02AElatentAM":                ("02AElatentAM", "02AElatentAM", ["02AElatentAM"], "predictions_ea4new"),
+    "02AElatentAM":                ("02AElatentAM", "02AElatentAM", ["02AElatentAM"], "predictions_ea4pheno"),
     "02AElatentAM_PGSonly":        ("02AElatentAM", "02AElatentAM", ["02AElatentAM_PGSonly"], "predictions"),
-    "03EnvLatentAM":               ("03EnvLatentAM", "03EnvLatentAM_all", ["03EnvLatentAM"], "predictions_ea4new"),
+    "03EnvLatentAM":               ("03EnvLatentAM", "03EnvLatentAM_all", ["03EnvLatentAM"], "predictions_ea4pheno"),
     "03EnvLatentAM_PGSonly":       ("03EnvLatentAM", "03EnvLatentAM_all", ["03EnvLatentAM_PGSonly"], "predictions"),
-    "04EAmigration":               ("04EAmigration", "04EAmigration", ["04EAmigration"], "predictions_ea4new"),
+    "04EAmigration":               ("04EAmigration", "04EAmigration", ["04EAmigration"], "predictions_ea4pheno"),
     "05AMmigration_noVT":          ("05AMmigration_noVT", "05AMmigration_noVT", ["05AMmigration_noVT2"], "predictions"),
     "05AMmigration_noVT2_PGSonly": ("05AMmigration_noVT", "05AMmigration_noVT", ["05AMmigration_noVT2_PGSonly"], "predictions"),
 }

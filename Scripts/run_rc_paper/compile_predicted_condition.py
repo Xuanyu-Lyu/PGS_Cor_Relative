@@ -42,6 +42,11 @@ NN_NPE_SUMMARIES = {
     "predicted_condition_02AElatentAM_ea4new":  ("02AElatentAM", "_ea4new"),
     "predicted_condition_03EnvLatentAM_ea4new": ("03EnvLatentAM", "_ea4new"),
     "predicted_condition_04EAmigration_ea4new": ("04EAmigration", "_ea4new"),
+    # EA4 PGS + updated EA phenotypic correlations (estimates from predictions_ea4pheno/)
+    "predicted_condition_01DirAM_ea4pheno":       ("01DirAM_AE", "_ea4pheno"),
+    "predicted_condition_02AElatentAM_ea4pheno":  ("02AElatentAM", "_ea4pheno"),
+    "predicted_condition_03EnvLatentAM_ea4pheno": ("03EnvLatentAM", "_ea4pheno"),
+    "predicted_condition_04EAmigration_ea4pheno": ("04EAmigration", "_ea4pheno"),
 }
 
 

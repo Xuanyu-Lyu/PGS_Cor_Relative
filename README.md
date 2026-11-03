@@ -77,6 +77,8 @@ Scripts/
 │   ├── observed_correlations_PGS.csv / _pheno.csv
 │   ├── observed_correlations_PGS_ea4new.csv      PGS correlations with the updated EA4 PGS
 │   ├── make_observed_ea4new.py                   ea4_new_old.csv -> the file above
+│   ├── observed_correlations_pheno_021126.csv    updated EA phenotypic correlations
+│   ├── make_observed_pheno_021126.py             eapheno_021126.csv -> the file above
 │   ├── run_specs/<fit>/{features,params}.txt     what each fit uses and estimates
 │   ├── run_npe_pipeline.py                       train + predict every fit
 │   ├── train_npe_pgs_and_pheno.py                NPE training
@@ -84,7 +86,8 @@ Scripts/
 │   ├── npe_count.py                              posterior with an integer parameter (n_gen)
 │   ├── results_npe_unweighted_<fit>/             fitted model + predictions/ (not in git)
 │   ├── results_archive/                          earlier fits, moved here by the pipeline
-│   └── Analysis_NPE.ipynb                        predicted vs observed correlations
+│   ├── Analysis_NPE.ipynb                        predicted vs observed correlations
+│   └── Analysis_NPE_ea4new.ipynb                 the EA4 PGS run alone; why condition 03 fits poorly
 ├── test_04EAmigration/          identifiability tests and NPE benchmarks for condition 04
 └── Archive/                     retired conditions and unrun generator designs
 ```
@@ -285,10 +288,16 @@ predicted conditions:
 | `MSMPS` | `spo_sib_spo_par_sib` | mate's sibling's mate's parent's sibling |
 | `SMSCM` | `sib_spo_sib_chi_spo` | sibling's mate's sibling's child's mate |
 
-The phenotypic correlations are unchanged. The `ctype = old` rows of `ea4_new_old.csv` (old PGS,
-same pairs as the new rows) do not equal `observed_correlations_PGS.csv`: they differ by up to
-1.8 SE (`MSC`: 0.047 against 0.078). The two observed PGS files therefore differ in more than
-the PGS.
+The `ctype = old` rows of `ea4_new_old.csv` (old PGS, same pairs as the new rows) do not equal
+`observed_correlations_PGS.csv`: they differ by up to 1.8 SE (`MSC`: 0.047 against 0.078). The
+two observed PGS files therefore differ in more than the PGS.
+
+**Updated phenotypic correlations.** `observed_correlations_pheno_021126.csv` holds the updated EA
+phenotypic correlations for the same 26 relationship types, with their SE.
+`make_observed_pheno_021126.py` writes it from `eapheno_021126.csv`, which names relationships as
+`ea4_new_old.csv` does, so the translation above applies. Against `observed_correlations_pheno.csv`
+the 16 shared types change by at most 0.016 (`MSMSMS`: 0.064 → 0.079, 2.6 SE); the spousal
+correlation `M` goes from 0.440 to 0.433 (2.1 SE). `HSFS` is not in the new file.
 
 ## 3. Conditions
 
@@ -498,6 +507,12 @@ python run_npe_pipeline.py --skip_train --jobs 5 \
     --runs 01DirAM_AE 01DirAM_AFE 02AElatentAM 03EnvLatentAM 04EAmigration \
     --observed_pgs observed_correlations_PGS_ea4new.csv --pred_dir predictions_ea4new \
     --archive_tag ea4new_20261101
+# EA4 PGS + updated phenotypic correlations, into predictions_ea4pheno/
+python run_npe_pipeline.py --skip_train --jobs 5 \
+    --runs 01DirAM_AE 01DirAM_AFE 02AElatentAM 03EnvLatentAM 04EAmigration \
+    --observed_pgs observed_correlations_PGS_ea4new.csv \
+    --observed_pheno observed_correlations_pheno_021126.csv --pred_dir predictions_ea4pheno \
+    --archive_tag ea4pheno_20261102
 ```
 
 The fits, with their training file, trait and extra arguments, are listed in `RUNS` in
@@ -556,9 +571,9 @@ bash submit_all_predicted_conditions.sh submit_predicted_condition_*_PGSonly.sh 
 python compile_predicted_condition.py              # after the jobs finish
 ```
 
-For the EA4 PGS runs, `compile_predicted_condition.py` also copies each summary to
-`Data/to_nn_NPE/results_npe_unweighted_<fit>/predictions/summary_statistics_<fit>_ea4new.csv`,
-the name the notebook reads (`NN_NPE_SUMMARIES` lists the runs; condition 01 is filed under
+For the EA4 runs, `compile_predicted_condition.py` also copies each summary to
+`Data/to_nn_NPE/results_npe_unweighted_<fit>/predictions/summary_statistics_<fit>_<run>.csv`
+(`<run>` = `ea4new` or `ea4pheno`), the name the notebook reads (`NN_NPE_SUMMARIES` lists the runs; condition 01 is filed under
 `01DirAM_AE`). The `rsync` of §4.1 then puts them in place. Earlier runs are not exported. Copy
 their compiled `summary_statistics.csv` by hand, under the name the notebook expects:
 
@@ -581,8 +596,16 @@ conditioned on `observed_correlations_PGS_ea4new.csv`. The posteriors are in
 `results_npe_unweighted_<fit>/predictions_ea4new/`, and the old-PGS ones stay in
 `predictions/`. `results_archive/ea4new_20261101/posterior_mean_changes.csv` lists both sets of
 estimates. The predicted-condition scripts of 01–04 hold the new estimates and add the 10 new
-relationship types. They write to `Data/predicted_condition_<cond>_ea4new/`. The PGS-only fits
-and condition 05 keep the old-PGS estimates.
+relationship types. They wrote to `Data/predicted_condition_<cond>_ea4new/`.
+
+**EA4 PGS + updated phenotypic correlations (November 2026).** The same fits are conditioned on
+`observed_correlations_PGS_ea4new.csv` and `observed_correlations_pheno_021126.csv`. The
+posteriors are in `results_npe_unweighted_<fit>/predictions_ea4pheno/`;
+`results_archive/ea4pheno_20261102/posterior_mean_changes.csv` lists them next to the old-PGS
+estimates. The predicted-condition scripts of 01–04 now hold these estimates and write to
+`Data/predicted_condition_<cond>_ea4pheno/`; their summaries are exported as
+`summary_statistics_<fit>_ea4pheno.csv`. The PGS-only fits and condition 05 keep the old-PGS
+estimates.
 
 ## 7. Analysis notebook
 
@@ -594,6 +617,11 @@ and condition 05 keep the old-PGS estimates.
 
 The EA4 PGS run (01–04, `"ea4new"`) is compared with `observed_correlations_PGS_ea4new.csv`
 (`OBS_PGS` in the first code cell), all other runs with `observed_correlations_PGS.csv`.
+
+`Scripts/nn_NPE/Analysis_NPE_ea4new.ipynb` covers the EA4 PGS run alone. For each condition it shows
+the description, the EA4 posterior of every estimated parameter (with its simulated range and the
+old-PGS value), and the figures, which split the 16 fit types from the 10 new ones. Its last section
+uses the training data to show why condition 03 fits poorly.
 
 Runs whose summary file is missing are skipped, so new runs appear once their files are copied in.
 `plot_condition("<cond>", "v2", values=True)` also prints each bar's value.

@@ -10,8 +10,8 @@ For each run in ``RUNS``:
      feature and parameter lists in ``run_specs/<run>/`` (copied into the run folder);
   3. predict the observed correlations (``observed_correlations_PGS.csv`` /
      ``observed_correlations_pheno.csv``) with ``predict_npe_pgs_and_pheno.py``;
-     ``--observed_pgs`` swaps in another PGS file and ``--pred_dir`` writes those
-     predictions to their own folder, next to ``predictions/``;
+     ``--observed_pgs`` / ``--observed_pheno`` swap in other observed files and
+     ``--pred_dir`` writes those predictions to their own folder, next to ``predictions/``;
   4. carry over the predicted-condition ``summary_statistics_*.csv`` files from the
      archived ``predictions/`` folder, so Analysis_NPE.ipynb keeps working. Those
      files come from simulations at the *previous* posterior means and stay stale
@@ -31,6 +31,12 @@ Usage
         --runs 01DirAM_AE 01DirAM_AFE 02AElatentAM 03EnvLatentAM 04EAmigration \
         --observed_pgs observed_correlations_PGS_ea4new.csv --pred_dir predictions_ea4new \
         --archive_tag ea4new_<YYYYMMDD>
+    # EA4 PGS + updated EA phenotypic correlations: into predictions_ea4pheno/
+    python run_npe_pipeline.py --skip_train --jobs 5 \
+        --runs 01DirAM_AE 01DirAM_AFE 02AElatentAM 03EnvLatentAM 04EAmigration \
+        --observed_pgs observed_correlations_PGS_ea4new.csv \
+        --observed_pheno observed_correlations_pheno_021126.csv --pred_dir predictions_ea4pheno \
+        --archive_tag ea4pheno_<YYYYMMDD>
 """
 
 from __future__ import annotations
@@ -137,7 +143,7 @@ def process_run(run, args, archive, threads):
     new_preds = out / args.pred_dir
     call([sys.executable, "predict_npe_pgs_and_pheno.py", "--model_dir", out.name,
           "--correlations_pgs", args.observed_pgs,
-          "--correlations_pheno", "observed_correlations_pheno.csv",
+          "--correlations_pheno", args.observed_pheno,
           "--n_samples", args.n_samples, "--n_samples_mcmc", args.n_samples_mcmc,
           "--trait", spec["trait"], "--output", new_preds, "--no_pairplot"], log, threads)
 
@@ -168,6 +174,8 @@ def main():
                     help="posterior samples for fits sampled by MCMC")
     ap.add_argument("--observed_pgs", default="observed_correlations_PGS.csv",
                     help="observed PGS correlations to predict (RelType, Correlation)")
+    ap.add_argument("--observed_pheno", default="observed_correlations_pheno.csv",
+                    help="observed phenotypic correlations to predict (RelType, Correlation)")
     ap.add_argument("--pred_dir", default="predictions",
                     help="folder in each run folder that the predictions go to")
     ap.add_argument("--jobs", type=int, default=1, help="runs trained in parallel")

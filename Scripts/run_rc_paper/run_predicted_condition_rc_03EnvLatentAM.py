@@ -20,9 +20,10 @@ from postprocessing import save_simulation_results, extract_individual_measures,
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-# EA4 PGS run (2026-11): own folders, so the outputs at the old-PGS estimates stay apart
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_03EnvLatentAM_ea4new")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_03EnvLatentAM_ea4new")
+# EA4 PGS + updated EA phenotypic correlations (2026-11-02): own folders, apart from the
+# outputs of the earlier runs (_ea4new: EA4 PGS with the old phenotypic correlations)
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_03EnvLatentAM_ea4pheno")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_03EnvLatentAM_ea4pheno")
 
 # Bivariate AE + vertical transmission + latent AM condition (03_EnvLatentAM).
 # Single-trait phenotypic AM on trait 2 only (latent factor, am22);
@@ -35,10 +36,12 @@ PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predic
 # The NPE was trained (2026-10-19) on nn_training_03EnvLatentAM_all.csv, the first
 # training data of this design plus a 2026-10 cluster run that reused this design's
 # conditions (38,124 rows over 20,000 conditions; train/validation/test splits keep each
-# condition together). Posterior means predicted 2026-11-01 from the updated EA4 PGS
-# (nn_NPE/observed_correlations_PGS_ea4new.csv) with the same NPE fits, which are not
-# retrained. Values: results_npe_unweighted_<fit>/predictions_ea4new/; the old-PGS values
-# are in predictions/ and nn_NPE/results_archive/ea4new_20261101/posterior_mean_changes.csv.
+# condition together). Posterior means predicted 2026-11-02 from the updated EA4 PGS
+# and EA phenotypic correlations (nn_NPE/observed_correlations_PGS_ea4new.csv,
+# observed_correlations_pheno_021126.csv) with the same NPE fits, which are not retrained.
+# Values: results_npe_unweighted_<fit>/predictions_ea4pheno/; those from the EA4 PGS alone
+# are in predictions_ea4new/, the old-PGS ones in predictions/; the old-PGS values and these
+# side by side: nn_NPE/results_archive/ea4pheno_20261102/posterior_mean_changes.csv.
 # The posterior is restricted to the simulated parameter range. None of the unrestricted
 # 03EnvLatentAM posterior lies inside that range: the observed correlations are outside
 # what this model produces, so the estimates sit at its edge (rg at its upper bound).
@@ -46,14 +49,14 @@ CONDITION = {
     'name': 'Predicted_Condition_03EnvLatentAM',
     # Trait 1 (posterior means for vg1, f11; prop_h2_latent1 fixed)
     'prop_h2_latent1': 0.7,   # fixed
-    'vg1': 0.7078,
+    'vg1': 0.7336,
     'am11': 0.0,      # no direct AM on trait 1
-    'f11': 0.2131,    # posterior mean
+    'f11': 0.1584,    # posterior mean
     # Trait 2: latent AM (posterior means for am22, f22; prop_h2_latent2, vg2 fixed)
     'prop_h2_latent2': 1.0,   # fixed
     'vg2': 0.5,       # fixed
-    'am22': 0.7357,   # latent AM on trait 2 (single-trait mating)
-    'f22': 0.0598,
+    'am22': 0.7303,   # latent AM on trait 2 (single-trait mating)
+    'f22': 0.0575,
     's11': 0.5,       # fixed shared family environment
     's12': 0.5,       # fixed cross-trait shared environment
     's21': 0.5,       # fixed cross-trait shared environment
@@ -63,7 +66,7 @@ CONDITION = {
     'f21': 0.0,       # fixed: no cross-trait vertical transmission
     'am12': 0.0,
     'am21': 0.0,
-    'rg': 0.8981,   # posterior mean
+    'rg': 0.8982,   # posterior mean
     're': 0.1,        # fixed environmental correlation
 }
 
