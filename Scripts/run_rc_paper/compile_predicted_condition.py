@@ -47,6 +47,11 @@ NN_NPE_SUMMARIES = {
     "predicted_condition_02AElatentAM_ea4pheno":  ("02AElatentAM", "_ea4pheno"),
     "predicted_condition_03EnvLatentAM_ea4pheno": ("03EnvLatentAM", "_ea4pheno"),
     "predicted_condition_04EAmigration_ea4pheno": ("04EAmigration", "_ea4pheno"),
+    # Wider-prior fits on all 26 relationship types (the fit name already says wider)
+    "predicted_condition_01DirAM_wider":       ("01DirAM_AE_wider", ""),
+    "predicted_condition_02AElatentAM_wider":  ("02AElatentAM_wider", ""),
+    "predicted_condition_03EnvLatentAM_wider": ("03EnvLatentAM_wider", ""),
+    "predicted_condition_04EAmigration_wider": ("04EAmigration_wider", ""),
 }
 
 

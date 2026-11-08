@@ -20,42 +20,40 @@ from postprocessing import save_simulation_results, extract_individual_measures,
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-# EA4 PGS + updated EA phenotypic correlations (2026-11-02): own folders, apart from the
-# outputs of the earlier runs (_ea4new: EA4 PGS with the old phenotypic correlations)
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_01DirAM_ea4pheno")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_01DirAM_ea4pheno")
+# Wider-prior fits on all 26 relationship types (2026-11-08): own folders, apart from the
+# outputs of the earlier runs (_ea4pheno: narrower-prior fits on 16 relationship types)
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_01DirAM_wider")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_01DirAM_wider")
 
 # Bivariate Direct AM condition (01_DirAM): two independent univariate models.
 # Trait 1: AE model (no vertical transmission, no social homogamy), direct AM via am11.
-# Trait 2: AFE model (vertical transmission f22, social homogamy s22), direct AM via am22.
+# Trait 2: AFE model (vertical transmission f22; s22 = 0), direct AM via am22.
 # No genetic or environmental correlation between traits (rg = re = 0).
-# Trait 1 (AE) free params are posterior means from results_npe_unweighted_01DirAM_AE.
-# Trait 2 (AFE) free params (prop_h2_latent2, vg2, f22, s22, am22) are posterior means
-# from results_npe_unweighted_01DirAM_AFE (vg2 and s22 are sampled in the training data).
-# Posterior means predicted 2026-11-02 from the updated EA4 PGS
-# and EA phenotypic correlations (nn_NPE/observed_correlations_PGS_ea4new.csv,
-# observed_correlations_pheno_021126.csv) with the same NPE fits, which are not retrained.
-# Values: results_npe_unweighted_<fit>/predictions_ea4pheno/; those from the EA4 PGS alone
-# are in predictions_ea4new/, the old-PGS ones in predictions/; the old-PGS values and these
-# side by side: nn_NPE/results_archive/ea4pheno_20261102/posterior_mean_changes.csv.
-# The posterior is restricted to the simulated parameter range, and only the rows of the
-# training-data design (vg2 and s22 sampled, 15 generations) are used. 60.7% of the
-# unrestricted 01DirAM_AE posterior lies inside the simulated range. 0.09% of the
-# unrestricted 01DirAM_AFE posterior lies inside it: the observed correlations are
-# outside what this model produces, so the estimates sit at the edge of that range.
+# Trait 1 (AE) free params are posterior means from results_npe_unweighted_01DirAM_AE_wider.
+# Trait 2 (AFE) free params (prop_h2_latent2, vg2, f22, am22) are posterior means from
+# results_npe_unweighted_01DirAM_AFE_wider; s22 is fixed at 0, as in the wider generator.
+# Both fits were trained 2026-11-08 on nn_training_01DirAM_wider.csv with all 26 relationship
+# types (PGS and phenotypic) and predicted from nn_NPE/observed_correlations_PGS_ea4new.csv and
+# observed_correlations_pheno_021126.csv. Values: results_npe_unweighted_<fit>/predictions/.
+# The posterior is restricted to the simulated parameter range. 99.8% of the unrestricted
+# 01DirAM_AE_wider posterior lies inside it, with vg1 near its lower bound (0.05). 0.30% of the
+# unrestricted 01DirAM_AFE_wider posterior lies inside it, with vg2 and f22 near their lower
+# bounds. The observed correlations are far outside what this model simulates (Mahalanobis
+# distance 51 for trait 1 and 42 for trait 2; at most 16 and 34 among the training rows), so
+# these are extrapolations and the narrow posterior intervals are overconfident.
 CONDITION = {
     'name': 'Predicted_Condition_01DirAM',
-    # Trait 1: AE model (posterior means, results_npe_unweighted_01DirAM_AE)
-    'prop_h2_latent1': 0.5391,
-    'vg1': 0.2183,
-    'am11': 0.4301,
+    # Trait 1: AE model (posterior means, results_npe_unweighted_01DirAM_AE_wider)
+    'prop_h2_latent1': 0.6093,
+    'vg1': 0.0756,
+    'am11': 0.4318,
     'f11': 0.0,       # AE model: no vertical transmission
-    # Trait 2: AFE model (prop_h2_latent2/vg2/am22/f22/s22 posterior means, results_npe_unweighted_01DirAM_AFE)
-    'prop_h2_latent2': 0.5422,
-    'vg2': 0.2351,    # posterior mean
-    'am22': 0.4346,
-    'f22': 0.0018,    # posterior mean
-    's22': 0.2588,    # posterior mean
+    # Trait 2: AFE model (prop_h2_latent2/vg2/am22/f22 posterior means, results_npe_unweighted_01DirAM_AFE_wider)
+    'prop_h2_latent2': 0.5933,
+    'vg2': 0.0888,    # posterior mean
+    'am22': 0.4474,
+    'f22': 0.0053,    # posterior mean
+    's22': 0.0,       # fixed, as in the wider generator
     's11': 0.0,       # no shared family environment (trait 1)
     's12': 0.0,       # no cross-trait family environment
     's21': 0.0,       # no cross-trait family environment
@@ -103,7 +101,7 @@ RELATIONSHIP_TYPES = [
     'SMSMSC',
     'MSMSMS',
     # Added 2026-11-01: the other relationship types of the EA4 observed data
-    # (nn_NPE/observed_correlations_PGS_ea4new.csv); not in the NPE training data
+    # (nn_NPE/observed_correlations_PGS_ea4new.csv); also used by the wider NPE fits
     'SC',       # Sibling's child (avuncular)
     'PSCC',     # First cousin's child (first cousin once removed)
     'MPS',      # Mate's parent's sibling
@@ -121,7 +119,7 @@ def setup_matrices(params):
     Setup covariance and other matrices based on simulation parameters.
     Condition 01_DirAM: two independent traits (rg=re=0), each with direct AM.
     Trait 1: AE model - no VT, direct AM via am11.
-    Trait 2: AFE model - vertical transmission f22, social homogamy s22, direct AM via am22.
+    Trait 2: AFE model - vertical transmission f22 (s22 = 0), direct AM via am22.
     """
     vg1 = params['vg1']
     vg2 = params['vg2']

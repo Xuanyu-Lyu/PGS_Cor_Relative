@@ -514,6 +514,9 @@ python run_npe_pipeline.py --skip_train --jobs 5 \
     --observed_pgs observed_correlations_PGS_ea4new.csv \
     --observed_pheno observed_correlations_pheno_021126.csv --pred_dir predictions_ea4pheno \
     --archive_tag ea4pheno_20261102
+# wider-prior fits on all 26 relationship types (train + predict)
+python run_npe_pipeline.py --jobs 5 --archive_tag wider_20261108 --runs \
+    01DirAM_AE_wider 01DirAM_AFE_wider 02AElatentAM_wider 03EnvLatentAM_wider 04EAmigration_wider
 ```
 
 The fits, with their training file, trait and extra arguments, are listed in `RUNS` in
@@ -603,10 +606,23 @@ relationship types. They wrote to `Data/predicted_condition_<cond>_ea4new/`.
 `observed_correlations_PGS_ea4new.csv` and `observed_correlations_pheno_021126.csv`. The
 posteriors are in `results_npe_unweighted_<fit>/predictions_ea4pheno/`;
 `results_archive/ea4pheno_20261102/posterior_mean_changes.csv` lists them next to the old-PGS
-estimates. The predicted-condition scripts of 01–04 now hold these estimates and write to
-`Data/predicted_condition_<cond>_ea4pheno/`; their summaries are exported as
+estimates. The predicted-condition scripts of 01–04 held these estimates and wrote to
+`Data/predicted_condition_<cond>_ea4pheno/`; their summaries were exported as
 `summary_statistics_<fit>_ea4pheno.csv`. The PGS-only fits and condition 05 keep the old-PGS
 estimates.
+
+**Wider-prior fits on all 26 relationship types (November 2026).** New fits (`01DirAM_AE_wider`,
+`01DirAM_AFE_wider`, `02AElatentAM_wider`, `03EnvLatentAM_wider`, `04EAmigration_wider`) are
+trained on `nn_training_<cond>_wider.csv` (§4.1) with all 26 relationship types, PGS and
+phenotypic (52 correlations), and conditioned on `observed_correlations_PGS_ea4new.csv` and
+`observed_correlations_pheno_021126.csv`. The posteriors are in
+`results_npe_unweighted_<fit>/predictions/`. The predicted-condition scripts of 01–04 now hold
+these estimates, follow the wider generators (15 generations for 01–03; `s22 = 0` for 01) and
+write to `Data/predicted_condition_<cond>_wider/`; their summaries are exported as
+`summary_statistics_<fit>.csv`. `PSCC` and `PPSCC` do not exist at `n_gen = 3`, so
+`04EAmigration_wider` is fitted on `n_gen` 4–10. A check fit without those two types and with
+`n_gen` 3–10 gives $P(n_\mathrm{gen} = 3) = 0.98$, so the estimate `n_gen = 4` depends on that
+choice.
 
 ## 7. Analysis notebook
 

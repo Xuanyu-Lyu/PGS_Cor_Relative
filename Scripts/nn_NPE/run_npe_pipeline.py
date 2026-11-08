@@ -37,6 +37,9 @@ Usage
         --observed_pgs observed_correlations_PGS_ea4new.csv \
         --observed_pheno observed_correlations_pheno_021126.csv --pred_dir predictions_ea4pheno \
         --archive_tag ea4pheno_<YYYYMMDD>
+    # wider-prior fits on all 26 relationship types (PGS + phenotypic)
+    python run_npe_pipeline.py --jobs 5 --archive_tag wider_<YYYYMMDD> --runs \
+        01DirAM_AE_wider 01DirAM_AFE_wider 02AElatentAM_wider 03EnvLatentAM_wider 04EAmigration_wider
 """
 
 from __future__ import annotations
@@ -62,6 +65,10 @@ DIRAM_ROWS = ["--row_filter", "param_vg2.notna()"]
 # nn_training_05AMmigration_noVT.csv: 362 of its rows come from the earlier 5-parameter
 # design (vg2, re, rg sampled); keep the am11 + move_p design.
 NOVT2_ROWS = ["--row_filter", "param_vg2.isna()"]
+# Wider-prior fits (Scripts/run_rc_paper_wider) use all 26 relationship types, PGS and phenotypic,
+# so they are predicted from the observed files that hold all 26.
+WIDER_OBSERVED = dict(observed_pgs="observed_correlations_PGS_ea4new.csv",
+                      observed_pheno="observed_correlations_pheno_021126.csv")
 
 RUNS = {
     "01DirAM_AE":                  dict(data="01DirAM", trait=1, train_args=DIRAM_ROWS),
@@ -84,6 +91,15 @@ RUNS = {
     # Data: copy nn_training_combined_04EAmigration.csv from the HPC to nn_training_04EAmigration.csv
     "04EAmigration":               dict(data="04EAmigration", trait=1,
                                         train_args=["--group_col", "Condition", "--count_param", "n_gen"]),
+    "01DirAM_AE_wider":            dict(data="01DirAM_wider", trait=1, **WIDER_OBSERVED),
+    "01DirAM_AFE_wider":           dict(data="01DirAM_wider", trait=2, **WIDER_OBSERVED),
+    "02AElatentAM_wider":          dict(data="02AElatentAM_wider", trait=1, **WIDER_OBSERVED),
+    "03EnvLatentAM_wider":         dict(data="03EnvLatentAM_wider", trait=1, **WIDER_OBSERVED),
+    # PSCC and PPSCC do not exist at n_gen = 3 (the founders have no siblings); the trainer would
+    # code them as 0, so n_gen = 3 is left out rather than identified by that artefact.
+    "04EAmigration_wider":         dict(data="04EAmigration_wider", trait=1, **WIDER_OBSERVED,
+                                        train_args=["--group_col", "Condition", "--count_param", "n_gen",
+                                                    "--row_filter", "param_n_gen >= 4"]),
 }
 
 
@@ -142,8 +158,8 @@ def process_run(run, args, archive, threads):
 
     new_preds = out / args.pred_dir
     call([sys.executable, "predict_npe_pgs_and_pheno.py", "--model_dir", out.name,
-          "--correlations_pgs", args.observed_pgs,
-          "--correlations_pheno", args.observed_pheno,
+          "--correlations_pgs", args.observed_pgs or spec.get("observed_pgs", "observed_correlations_PGS.csv"),
+          "--correlations_pheno", args.observed_pheno or spec.get("observed_pheno", "observed_correlations_pheno.csv"),
           "--n_samples", args.n_samples, "--n_samples_mcmc", args.n_samples_mcmc,
           "--trait", spec["trait"], "--output", new_preds, "--no_pairplot"], log, threads)
 
@@ -172,10 +188,12 @@ def main():
     ap.add_argument("--n_samples", type=int, default=4000, help="posterior samples for prediction")
     ap.add_argument("--n_samples_mcmc", type=int, default=20000,
                     help="posterior samples for fits sampled by MCMC")
-    ap.add_argument("--observed_pgs", default="observed_correlations_PGS.csv",
-                    help="observed PGS correlations to predict (RelType, Correlation)")
-    ap.add_argument("--observed_pheno", default="observed_correlations_pheno.csv",
-                    help="observed phenotypic correlations to predict (RelType, Correlation)")
+    ap.add_argument("--observed_pgs", default=None,
+                    help="observed PGS correlations to predict (RelType, Correlation); "
+                         "default: the run's own in RUNS, else observed_correlations_PGS.csv")
+    ap.add_argument("--observed_pheno", default=None,
+                    help="observed phenotypic correlations to predict (RelType, Correlation); "
+                         "default: the run's own in RUNS, else observed_correlations_pheno.csv")
     ap.add_argument("--pred_dir", default="predictions",
                     help="folder in each run folder that the predictions go to")
     ap.add_argument("--jobs", type=int, default=1, help="runs trained in parallel")

@@ -35,32 +35,30 @@ from postprocessing import save_simulation_results, extract_individual_measures,
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-# EA4 PGS + updated EA phenotypic correlations (2026-11-02): own folders, apart from the
-# outputs of the earlier runs (_ea4new: EA4 PGS with the old phenotypic correlations)
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_04EAmigration_ea4pheno")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_04EAmigration_ea4pheno")
+# Wider-prior fits on all 26 relationship types (2026-11-08): own folders, apart from the
+# outputs of the earlier runs (_ea4pheno: narrower-prior fits on 16 relationship types)
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_04EAmigration_wider")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_04EAmigration_wider")
 
 # Condition 04EAmigration: EA-driven island migration, no AM, no VT.
-# NPE fit: nn_NPE/results_npe_unweighted_04EAmigration (trained 2026-10-13 on
-# nn_training_04EAmigration.csv), predicted 2026-11-02 from the updated EA4 PGS
-# and EA phenotypic correlations (nn_NPE/observed_correlations_PGS_ea4new.csv,
-# observed_correlations_pheno_021126.csv) with the same NPE fit, which is not retrained.
-# Values: results_npe_unweighted_<fit>/predictions_ea4pheno/; those from the EA4 PGS alone
-# are in predictions_ea4new/, the old-PGS ones in predictions/; the old-PGS values and these
-# side by side: nn_NPE/results_archive/ea4pheno_20261102/posterior_mean_changes.csv.
-# n_gen is the posterior mode (P(n_gen=4) = 0.99996); the continuous parameters are
-# posterior means.
-# Caveat (old PGS): the observed correlations lie outside the simulated distribution
-# (Mahalanobis distance 27 vs at most 11 among the training rows; sibling PGS
-# r = 0.559 vs ~0.51 in simulations near these values), so these are
-# extrapolations and the very narrow posterior intervals are overconfident. The
-# updated PGS and phenotypic correlations barely change that distance (26).
+# NPE fit: nn_NPE/results_npe_unweighted_04EAmigration_wider (trained 2026-11-08 on the
+# n_gen >= 4 rows of nn_training_04EAmigration_wider.csv, with all 26 relationship
+# types (PGS and phenotypic) and predicted from nn_NPE/observed_correlations_PGS_ea4new.csv and
+# observed_correlations_pheno_021126.csv. Values: results_npe_unweighted_<fit>/predictions/.
+# n_gen is the posterior mode (P(n_gen=4) > 0.9999); the continuous parameters are
+# posterior means. n_gen = 4 is the lowest value in this fit: PSCC and PPSCC do not exist at
+# n_gen = 3 (the founders have no siblings), so n_gen = 3 cannot reproduce all 26 types. In a
+# check fit without those two types and with n_gen 3-10, P(n_gen=3) = 0.98, with move_p 0.514,
+# vg1 0.334 and prop_h2_latent1 0.666.
+# Caveat: the observed correlations are far outside the simulated distribution (Mahalanobis
+# distance 41; at most 16 among the training rows), so these are extrapolations and the
+# very narrow posterior intervals are overconfident.
 CONDITION = {
     'name': 'Predicted_Condition_04EAmigration',
     # Estimated parameters
-    'move_p':          0.4454,  # fraction of each sex per island migrating per generation
-    'vg1':             0.3294,  # EA total genetic variance
-    'prop_h2_latent1': 0.7136,  # share of EA genetic variance NOT captured by the PGS
+    'move_p':          0.4507,  # fraction of each sex per island migrating per generation
+    'vg1':             0.2824,  # EA total genetic variance
+    'prop_h2_latent1': 0.6346,  # share of EA genetic variance NOT captured by the PGS
     'n_gen':           4,       # generations since the random founders
     # Trait 2 (dummy): fully latent, drives nothing (fixed)
     'vg2': 0.5,
@@ -103,7 +101,7 @@ RELATIONSHIP_TYPES = [
     'SMSMSC',
     'MSMSMS',
     # Added 2026-11-01: the other relationship types of the EA4 observed data
-    # (nn_NPE/observed_correlations_PGS_ea4new.csv); not in the NPE training data
+    # (nn_NPE/observed_correlations_PGS_ea4new.csv); also used by the wider NPE fits
     'SC',       # Sibling's child (avuncular)
     'PSCC',     # First cousin's child (first cousin once removed)
     'MPS',      # Mate's parent's sibling
