@@ -23,9 +23,18 @@ if [ $# -ne 1 ]; then
     exit 1
 fi
 
+condition=$1
+
 mkdir -p slurm_logs
+
+# Clear the arguments first: a sourced file sees this script's $1, and the CURC conda setup
+# would try to activate it as an environment. Conda's shell hooks are not written for
+# strict mode, so it stays off until the environment is active.
+set --
+set +eu
 module purge
 source /curc/sw/anaconda3/latest
-conda activate /projects/xuly4739/general_env
+conda activate /projects/xuly4739/general_env || exit 1
+set -eu
 
-python -u CombineNN_Data_Large_wider.py "$1" --split --test_size 0.2
+python -u CombineNN_Data_Large_wider.py "$condition" --split --test_size 0.2

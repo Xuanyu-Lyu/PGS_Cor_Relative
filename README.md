@@ -87,7 +87,8 @@ Scripts/
 │   ├── results_npe_unweighted_<fit>/             fitted model + predictions/ (not in git)
 │   ├── results_archive/                          earlier fits, moved here by the pipeline
 │   ├── Analysis_NPE.ipynb                        predicted vs observed correlations
-│   └── Analysis_NPE_ea4new.ipynb                 the EA4 PGS run alone; why condition 03 fits poorly
+│   ├── Analysis_NPE_ea4new.ipynb                 the EA4 PGS run alone; why condition 03 fits poorly
+│   └── Analysis_NPE_ea4pheno.ipynb               the EA4 PGS + updated phenotypic run; 03 rechecked
 ├── test_04EAmigration/          identifiability tests and NPE benchmarks for condition 04
 └── Archive/                     retired conditions and unrun generator designs
 ```
@@ -622,6 +623,14 @@ The EA4 PGS run (01–04, `"ea4new"`) is compared with `observed_correlations_PG
 the description, the EA4 posterior of every estimated parameter (with its simulated range and the
 old-PGS value), and the figures, which split the 16 fit types from the 10 new ones. Its last section
 uses the training data to show why condition 03 fits poorly.
+
+`Scripts/nn_NPE/Analysis_NPE_ea4pheno.ipynb` does the same for the run with the updated phenotypic
+correlations (`observed_correlations_pheno_021126.csv`, which covers all 26 types, so the new types
+are compared on both PGS and phenotypic correlations). Its figures show the 26 types together, sorted
+by the observed PGS correlation, without the split, and every fit is measured by the RMSE (and bias)
+of the Fisher-z-transformed correlations instead of MAE, RMSE and r. It lists each estimate next to the `ea4new`
+one, compares the errors of both runs, and repeats the condition-03 checks with the updated data. It
+reads `results_npe_unweighted_<fit>/predictions_ea4pheno/summary_statistics_<fit>_ea4pheno.csv`.
 
 Runs whose summary file is missing are skipped, so new runs appear once their files are copied in.
 `plot_condition("<cond>", "v2", values=True)` also prints each bar's value.
