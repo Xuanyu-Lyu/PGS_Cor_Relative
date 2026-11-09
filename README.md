@@ -65,7 +65,7 @@ Scripts/
 │   ├── run_predicted_condition_rc_<cond>.py      predicted-condition simulation
 │   ├── submit_predicted_condition_<cond>.sh
 │   ├── submit_all_predicted_conditions.sh        submit the predicted conditions of 01–04
-│   ├── compile_predicted_condition.py            per-task outputs -> summary_statistics.csv
+│   ├── compile_predicted_condition.py            per-task outputs -> summary_statistics_<run>.csv
 │   └── check_predicted_conditions.py             scripts vs NPE fits vs generators
 ├── run_rc_paper_wider/          training data for 01–04 with wider parameter ranges (§4.1)
 │   ├── DataGeneratingNN_Combined_<cond>_wider.py
@@ -580,8 +580,8 @@ Run it after any refit.
 
 ### 6.2 Summaries and fit metrics
 
-`compile_predicted_condition.py` gathers each run's per-task outputs into `summary_statistics.csv`.
-For each relationship and variable, it holds the mean $\bar\rho_{r,v}$ and SD of the correlations
+`compile_predicted_condition.py` gathers each run's per-task outputs into a summary named after
+the run, `summary_statistics_<run>.csv` (§6.3). For each relationship and variable, it holds the mean $\bar\rho_{r,v}$ and SD of the correlations
 across replicates. The notebook compares the means with the observed correlations $o_{r,v}$ over
 the 16 relationships $R$:
 
@@ -605,11 +605,16 @@ bash submit_all_predicted_conditions.sh submit_predicted_condition_*_PGSonly.sh 
 python compile_predicted_condition.py              # after the jobs finish
 ```
 
-For the EA4 runs, `compile_predicted_condition.py` also copies each summary to
-`Data/to_nn_NPE/results_npe_unweighted_<fit>/predictions/summary_statistics_<fit>_<run>.csv`
-(`<run>` = `ea4new` or `ea4pheno`), the name the notebook reads (`NN_NPE_SUMMARIES` lists the runs; condition 01 is filed under
-`01DirAM_AE`). The `rsync` of §4.1 then puts them in place. Earlier runs are not exported. Copy
-their compiled `summary_statistics.csv` by hand, under the name the notebook expects:
+`compile_predicted_condition.py` writes each summary into its run's folder under a name that
+identifies the run, so it can be downloaded as is. The EA4 and `_wider` runs, listed in
+`NN_NPE_SUMMARIES`, use the name the notebook reads, `summary_statistics_<fit>_<run>.csv`
+(`<run>` = `ea4new` or `ea4pheno`; the `_wider` fits have no `<run>`; condition 01 is filed under
+`01DirAM_AE`). They are also copied to `Data/to_nn_NPE/results_npe_unweighted_<fit>/predictions/`,
+and the `rsync` of §4.1 then puts them in place.
+
+Any other `predicted_condition_<name>` folder gives `summary_statistics_<name>.csv` and is not
+exported. To use one of those earlier runs in the notebook, copy it by hand under the name the
+notebook expects:
 
 - v1: `Scripts/nn_NPE/results_npe_unweighted_<fit>/predictions/summary_statistics_<fit>.csv`
 - v2: `summary_statistics_<fit>_v2.csv` in the same folder

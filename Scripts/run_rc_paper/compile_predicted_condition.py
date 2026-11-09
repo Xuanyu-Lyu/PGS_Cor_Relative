@@ -3,13 +3,16 @@ Compile summary statistics from array-task outputs for predicted conditions.
 
 Scans DATA_ROOT for every "predicted_condition_*" directory and, within each,
 every condition subdirectory that has per-task CSV outputs:
-  - task_XX_correlations.csv          -> all_correlations.csv + summary_statistics.csv
+  - task_XX_correlations.csv          -> all_correlations.csv + summary_statistics_<run>.csv
   - mate_pgs_correlations_task_XX.csv -> mate_pgs_correlations_all.csv
 
-For the runs listed in NN_NPE_SUMMARIES, summary_statistics.csv is also copied to
-DATA_ROOT/to_nn_NPE/, laid out like Scripts/nn_NPE and named as Analysis_NPE.ipynb reads it
-(results_npe_unweighted_<fit>/predictions/summary_statistics_<fit><run suffix>.csv, e.g.
-summary_statistics_02AElatentAM_ea4new.csv), so one copy puts every summary in place:
+The summary is named after its run, so it can be downloaded as is. Runs listed in
+NN_NPE_SUMMARIES use the name Analysis_NPE.ipynb reads (summary_statistics_<fit><run suffix>.csv,
+e.g. summary_statistics_02AElatentAM_ea4new.csv). Any other predicted_condition_<name> folder
+gives summary_statistics_<name>.csv.
+
+The listed runs are also copied to DATA_ROOT/to_nn_NPE/, laid out like Scripts/nn_NPE
+(results_npe_unweighted_<fit>/predictions/), so one copy puts every summary in place:
     rsync -av <curc>:/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/to_nn_NPE/ Scripts/nn_NPE/
 
 A condition directory is (re)compiled only if its combined outputs are
@@ -94,14 +97,25 @@ def needs_compile(task_files, outputs, force: bool) -> bool:
     return newest_task is not None and newest_task > oldest_output
 
 
-def compile_correlations(condition_dir: Path, force: bool) -> bool:
+def summary_file_name(condition_dir: Path, data_root: Path) -> str:
+    """Name of a run's summary: the notebook's name if listed in NN_NPE_SUMMARIES, else from its folder."""
+    top = condition_dir.relative_to(data_root).parts[0]
+    if top in NN_NPE_SUMMARIES:
+        fit, suffix = NN_NPE_SUMMARIES[top]
+        run = f"{fit}{suffix}"
+    else:
+        run = top[len("predicted_condition_"):]
+    return f"summary_statistics_{run}.csv"
+
+
+def compile_correlations(condition_dir: Path, data_root: Path, force: bool) -> bool:
     """Concatenate per-task correlation files and compute summary statistics."""
     task_files = sorted(condition_dir.glob("task_*_correlations.csv"))
     if not task_files:
         return False
 
     out_all = condition_dir / "all_correlations.csv"
-    out_summary = condition_dir / "summary_statistics.csv"
+    out_summary = condition_dir / summary_file_name(condition_dir, data_root)
 
     if not needs_compile(task_files, [out_all, out_summary], force):
         print(f"  Relationship correlations up to date ({len(task_files)} task file(s)) – skipping.")
@@ -181,13 +195,14 @@ def compile_mate_pgs(condition_dir: Path, force: bool) -> bool:
 
 
 def export_for_nn_npe(condition_dir: Path, data_root: Path) -> None:
-    """Copy summary_statistics.csv to data_root/to_nn_NPE under the name Scripts/nn_NPE expects."""
+    """Copy a listed run's summary to data_root/to_nn_NPE, in the folder Scripts/nn_NPE reads it from."""
     top = condition_dir.relative_to(data_root).parts[0]
-    src = condition_dir / "summary_statistics.csv"
+    name = summary_file_name(condition_dir, data_root)
+    src = condition_dir / name
     if top not in NN_NPE_SUMMARIES or not src.exists():
         return
-    fit, suffix = NN_NPE_SUMMARIES[top]
-    rel = Path(f"results_npe_unweighted_{fit}") / "predictions" / f"summary_statistics_{fit}{suffix}.csv"
+    fit, _ = NN_NPE_SUMMARIES[top]
+    rel = Path(f"results_npe_unweighted_{fit}") / "predictions" / name
     dest = data_root / "to_nn_NPE" / rel
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dest)
@@ -230,7 +245,7 @@ def main() -> None:
         print("-" * 70)
 
         print("\n── Relationship correlations ──")
-        updated_corr = compile_correlations(condition_dir, args.force)
+        updated_corr = compile_correlations(condition_dir, args.dir, args.force)
 
         print("\n── Mate PGS correlations ──")
         updated_mate = compile_mate_pgs(condition_dir, args.force)
