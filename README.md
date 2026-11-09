@@ -72,6 +72,7 @@ Scripts/
 │   ├── submit_datagenerating_nn_combined_<cond>_wider.sh
 │   ├── CombineNN_Data_Large_wider.py / submit_combine_nn_wider.sh   one script for all four
 │   └── submit_all_wider.sh                        submit every array + its combine job
+├── run_rc_paper_rescaled/       training data for 01–04 after the engine fix of 2026-11-08 (§4.2)
 ├── nn_NPE/                      model fitting (local)
 │   ├── nn_training_<cond>.csv                    training data (not in git)
 │   ├── observed_correlations_PGS.csv / _pheno.csv
@@ -115,8 +116,10 @@ $$
 $$
 
 Each variant therefore contributes $2p_j(1-p_j)\alpha_{jt}^2 \approx 1/M$ of variance in
-expectation, and the total additive genetic variance of each trait in the founders is
-$\approx 1$. The genetic correlation $r_g$ (`rg`) enters only through the correlated effect
+expectation. The effects are then rescaled so that the founders' genetic variances equal the
+engine's path matrices (`d_mat` for the observed variants, `a_mat` for the latent ones). The
+generators build those from $vg_t$, so the total additive genetic variance of trait $t$ in the
+founders is $vg_t$. The genetic correlation $r_g$ (`rg`) enters only through the correlated effect
 sizes.
 
 ### 1.2 Observed (PGS) and latent genetic values
@@ -131,8 +134,8 @@ AO_{it} = \sum_{j\in\mathcal O_t} x_{ij}\alpha_{jt},
 AL_{it} = \sum_{j\notin\mathcal O_t} x_{ij}\alpha_{jt}.
 $$
 
-Because every variant contributes equal expected variance, $\pi_t$ is also, in expectation, the
-share of genetic variance captured by the PGS. For a non-founder, the PGS is the sum of the
+The rescaling in §1.1 makes $\pi_t$ the share of the founders' genetic variance captured by the
+PGS. For a non-founder, the PGS is the sum of the
 observed effects on the two transmitted haplotypes,
 $\mathrm{PGS}_{it} = \mathrm{TPO}_{it} + \mathrm{TMO}_{it}$ (transmitted paternal and maternal
 observed), which equals $AO_{it}$.
@@ -140,7 +143,7 @@ observed), which equals $AO_{it}$.
 ### 1.3 Phenotype
 
 $$
-\mathbf Y_i = \mathbf{AO}_i + \mathbf{AL}_i + \mathbf F_i + \mathbf E_i,
+\mathbf Y_i = \mathbf{AO}_i + \mathbf{AL}_i + \mathbf F_i + \mathbf S_i + \mathbf E_i,
 \qquad
 \mathbf F_i = \mathbf\Phi\,(\mathbf Y_{\mathrm{father}(i)} + \mathbf Y_{\mathrm{mother}(i)}),
 \qquad
@@ -155,6 +158,11 @@ $$
 r_e\sqrt{(1-vg_1)(1-vg_2)} & 1 - vg_2\end{pmatrix}.
 $$
 
+$\mathbf S_i$ is a shared family environment: one draw per mating pair, the same for all full
+siblings, with $\mathrm{Cov}(\mathbf S) = \mathbf s\mathbf s^\top$ for the path matrix `s_mat`
+($\mathbf s$). It is zero in the founders, so the founders' phenotypic variance is 1. Trait values
+that include $\mathbf S$ pass to the next generation through $\mathbf F$ and through mate choice.
+
 (The engine also has a maternal mitochondrial term, which is zero in every condition here.)
 
 ### 1.4 What the generator parameters do in the engine
@@ -165,18 +173,17 @@ matrices from them (`setup_matrices`).
 | Parameter | Enters the engine as | Effect |
 |---|---|---|
 | `prop_h2_latent1/2` | ratio of `d_mat` to `a_mat` | share of causal variants (≈ genetic variance) **not** in the PGS |
-| `vg1/2` | `cove_mat` diagonal, $1 - vg_t$ | **environmental** variance. The genetic variance is ≈ 1 regardless (§1.1), so founder $h^2 \approx 1/(2 - vg_t)$ and founder $\mathrm{Var}(Y_t) \approx 2 - vg_t$ |
+| `vg1/2` | scale of `d_mat` and `a_mat`; `cove_mat` diagonal, $1 - vg_t$ | founder heritability: founder genetic variance $vg_t$, environmental variance $1 - vg_t$, $\mathrm{Var}(Y_t) = 1$ |
 | `rg` | `rg_effects` | correlation of the two traits' effect sizes |
 | `re` | `cove_mat` off-diagonal | environmental correlation |
 | `f11 … f22` | `f_mat` | vertical transmission $\mathbf\Phi$ |
 | `am11`, `am22`, `am12`, `am21` | `am_list` / `within_island_am` | target spousal correlations (§1.5) |
-| `s11 … s22` | `s_mat` | **no effect**: stored but never read by the engine |
+| `s11 … s22` | `s_mat` | shared family environment (§1.3) |
 | — | `covy_mat`, `k2_matrix` | stored but never read |
 
-`vg` is therefore not the genetic variance, despite its name. For example, `vg1` = 0.21 gives
-founder $h^2 \approx 0.56$. The training data and the predicted conditions use the same engine,
-so the fits are internally consistent. Only the interpretation of `vg` needs care (see
-[§8](#8-caveats-and-known-issues)).
+Everything simulated before the engine fix of 2026-11-08, including the `_wider` designs, used the
+old behaviour: the founders' genetic variance was ≈ 1 whatever `vg` was, and `s_mat` was ignored
+(see [§8](#8-caveats-and-known-issues)).
 
 ### 1.5 Mating
 
@@ -406,6 +413,29 @@ place:
 ```bash
 rsync -av <curc>:/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/to_nn_NPE/ Scripts/nn_NPE/
 ```
+
+### 4.2 Rescaled designs (`run_rc_paper_rescaled`)
+
+The engine fix of 2026-11-08 changed what `vg` and `s` do (§1.1, §1.3), so
+`Scripts/run_rc_paper_rescaled/` simulates conditions 01–04 again under new names
+(`<cond>_rescaled`). Each generator is a copy of its `run_rc_paper_wider` generator, with the same
+sampled ranges and number of simulations. They differ in two ways:
+
+- **Output:** everything goes to `Data/DataGeneratingNN_Paper_rescaled/<cond>_rescaled/`. A separate
+  folder is required, because the generators skip conditions already simulated with the same
+  parameters, so a re-run in the old folder would keep the old-engine rows.
+- **Condition 03:** `re = 0.7` (was 0.1) and `s = 0.3` on all four paths (was 0.5, with no effect);
+  `prop_h2_latent1` stays at 0.7. `re` and `prop_h2_latent1` were chosen at `vg1 = 0.35` from local
+  simulations with `s = 0.3` (`run_rc_paper_wider/diagnose_02_03/choose_03_fixed_values.py`).
+
+```bash
+# on the CURC login node, after sync_cluster_submodule.sh
+cd Scripts/run_rc_paper_rescaled
+bash submit_all_rescaled.sh                          # 01-04: each array + a combine job after it
+bash submit_all_rescaled.sh 02AElatentAM_rescaled    # or only some conditions
+```
+
+The combine job writes `Data/to_nn_NPE/nn_training_<cond>_rescaled.csv`.
 
 ## 5. Neural posterior estimation
 
@@ -653,13 +683,12 @@ Runs whose summary file is missing are skipped, so new runs appear once their fi
 
 ## 8. Caveats and known issues
 
-- **`vg` is not the genetic variance.** The engine fixes the founders' genetic variance at ≈ 1,
-  and `vg` sets the environmental variance $1 - vg$ (§1.4). Founder heritability is
-  $\approx 1/(2 - vg)$, and it changes over generations under AM, VT and migration. Estimates of
-  `vg` are valid within the model, but should be converted before being read as heritability.
-- **Shared-environment parameters have no effect.** `s11`–`s22` are passed to the engine but
-  never used. The `s = 0.5` in condition 03 is inert, and condition 01's `s22` estimate equals its
-  prior mean (test $R^2 \approx 0$).
+- **Results from before the engine fix of 2026-11-08.** Every training set, fit and predicted
+  condition up to and including the `_wider` designs came from an engine that left the founders'
+  genetic variance at ≈ 1 and ignored `s_mat`. In those results `vg` only set the environmental
+  variance $1 - vg$, founder heritability is $\approx 1/(2 - vg)$, the `s = 0.5` of condition 03
+  had no effect, and condition 01's `s22` estimate equals its prior mean. Re-running an older
+  script now uses the fixed engine, so it no longer reproduces those results.
 - **Observed data outside the models.** For the full (PGS + phenotypic) fits of 01 (trait 2), 02
   and 03, almost none of the unrestricted posterior lies inside the simulated range. Their
   estimates sit at the edge of that range, and the predicted conditions show how far each model
