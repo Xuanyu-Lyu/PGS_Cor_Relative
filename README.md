@@ -89,7 +89,8 @@ Scripts/
 │   ├── results_archive/                          earlier fits, moved here by the pipeline
 │   ├── Analysis_NPE.ipynb                        predicted vs observed correlations
 │   ├── Analysis_NPE_ea4new.ipynb                 the EA4 PGS run alone; why condition 03 fits poorly
-│   └── Analysis_NPE_ea4pheno.ipynb               the EA4 PGS + updated phenotypic run; 03 rechecked
+│   ├── Analysis_NPE_ea4pheno.ipynb               the EA4 PGS + updated phenotypic run; 03 rechecked
+│   └── Analysis_NPE_wider.ipynb                  the wider-prior fits on all 26 relationship types
 ├── test_04EAmigration/          identifiability tests and NPE benchmarks for condition 04
 └── Archive/                     retired conditions and unrun generator designs
 ```
@@ -682,6 +683,12 @@ by the observed PGS correlation, without the split, and every fit is measured by
 of the Fisher-z-transformed correlations instead of MAE, RMSE and r. It lists each estimate next to the `ea4new`
 one, compares the errors of both runs, and repeats the condition-03 checks with the updated data. It
 reads `results_npe_unweighted_<fit>/predictions_ea4pheno/summary_statistics_<fit>_ea4pheno.csv`.
+
+`Scripts/nn_NPE/Analysis_NPE_wider.ipynb` covers the wider-prior fits on all 26 relationship types
+(§6.4). These runs predate the engine fix (§8), so it reports founder heritability $h^2 = 1/(2 - vg)$
+in place of `vg`. It lists each estimate next to the `ea4pheno` one, compares the errors of both runs
+(Fisher z, and the misfit of `diagnose_02_03.ipynb`), and checks each fit against its training
+simulations.
 
 Runs whose summary file is missing are skipped, so new runs appear once their files are copied in.
 `plot_condition("<cond>", "v2", values=True)` also prints each bar's value.
