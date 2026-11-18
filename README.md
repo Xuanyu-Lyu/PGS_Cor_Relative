@@ -436,7 +436,9 @@ bash submit_all_rescaled.sh                          # 01-04: each array + a com
 bash submit_all_rescaled.sh 02AElatentAM_rescaled    # or only some conditions
 ```
 
-The combine job writes `Data/to_nn_NPE/nn_training_<cond>_rescaled.csv`.
+The combine job writes `Data/to_nn_NPE/nn_training_<cond>_rescaled.csv`. A node failure lost
+1 array task of 02 and 8 of 03, so their training files have 19,960 and 19,680 simulations;
+01 has 20,000 and 04 has 2,500 × 8 `n_gen` rows.
 
 ## 5. Neural posterior estimation
 
@@ -548,7 +550,15 @@ python run_npe_pipeline.py --skip_train --jobs 5 \
 # wider-prior fits on all 26 relationship types (train + predict)
 python run_npe_pipeline.py --jobs 5 --archive_tag wider_20261108 --runs \
     01DirAM_AE_wider 01DirAM_AFE_wider 02AElatentAM_wider 03EnvLatentAM_wider 04EAmigration_wider
+# rescaled designs (after the engine fix of 2026-11-08), set up as the wider fits
+python run_npe_pipeline.py --jobs 5 --archive_tag rescaled_20261117 --runs \
+    01DirAM_AE_rescaled 01DirAM_AFE_rescaled 02AElatentAM_rescaled 03EnvLatentAM_rescaled \
+    04EAmigration_rescaled
 ```
+
+Parallel runs can fail at start-up when several processes import `arviz` (through `sbi`) at the
+same moment: each writes the same once-a-day stamp file in `~/Library/Caches/arviz/`. Rerun the
+failed fits; the stamp then exists and they start normally.
 
 The fits, with their training file, trait and extra arguments, are listed in `RUNS` in
 `run_npe_pipeline.py`. What each fit uses and estimates is in `run_specs/<fit>/`. For each fit,
@@ -607,10 +617,10 @@ python compile_predicted_condition.py              # after the jobs finish
 ```
 
 `compile_predicted_condition.py` writes each summary into its run's folder under a name that
-identifies the run, so it can be downloaded as is. The EA4 and `_wider` runs, listed in
-`NN_NPE_SUMMARIES`, use the name the notebook reads, `summary_statistics_<fit>_<run>.csv`
-(`<run>` = `ea4new` or `ea4pheno`; the `_wider` fits have no `<run>`; condition 01 is filed under
-`01DirAM_AE`). They are also copied to `Data/to_nn_NPE/results_npe_unweighted_<fit>/predictions/`,
+identifies the run, so it can be downloaded as is. The EA4, `_wider` and `_rescaled` runs, listed
+in `NN_NPE_SUMMARIES`, use the name the notebook reads, `summary_statistics_<fit>_<run>.csv`
+(`<run>` = `ea4new` or `ea4pheno`; the `_wider` and `_rescaled` fits have no `<run>`; condition 01
+is filed under its AE fit). They are also copied to `Data/to_nn_NPE/results_npe_unweighted_<fit>/predictions/`,
 and the `rsync` of §4.1 then puts them in place.
 
 Any other `predicted_condition_<name>` folder gives `summary_statistics_<name>.csv` and is not
@@ -652,13 +662,39 @@ estimates.
 trained on `nn_training_<cond>_wider.csv` (§4.1) with all 26 relationship types, PGS and
 phenotypic (52 correlations), and conditioned on `observed_correlations_PGS_ea4new.csv` and
 `observed_correlations_pheno_021126.csv`. The posteriors are in
-`results_npe_unweighted_<fit>/predictions/`. The predicted-condition scripts of 01–04 now hold
-these estimates, follow the wider generators (15 generations for 01–03; `s22 = 0` for 01) and
-write to `Data/predicted_condition_<cond>_wider/`; their summaries are exported as
+`results_npe_unweighted_<fit>/predictions/`. The predicted-condition scripts of 01–04 held
+these estimates, followed the wider generators (15 generations for 01–03; `s22 = 0` for 01) and
+wrote to `Data/predicted_condition_<cond>_wider/`; their summaries are exported as
 `summary_statistics_<fit>.csv`. `PSCC` and `PPSCC` do not exist at `n_gen = 3`, so
 `04EAmigration_wider` is fitted on `n_gen` 4–10. A check fit without those two types and with
 `n_gen` 3–10 gives $P(n_\mathrm{gen} = 3) = 0.98$, so the estimate `n_gen = 4` depends on that
 choice.
+
+**Rescaled fits (November 2026).** The wider fits are repeated on the rescaled training data
+(§4.2), simulated after the engine fix, so `vg` is founder heritability: `01DirAM_AE_rescaled`,
+`01DirAM_AFE_rescaled`, `02AElatentAM_rescaled`, `03EnvLatentAM_rescaled` and
+`04EAmigration_rescaled`. They use the same features, parameters, observed files and options
+(`n_gen` 4–10 for 04) as the wider fits. The posteriors are in
+`results_npe_unweighted_<fit>/predictions/`; `results_archive/rescaled_20261117/posterior_mean_changes.csv`
+lists them.
+
+| Fit | Posterior means | Inside $\Theta$ | Mahalanobis (training max) |
+|---|---|---|---|
+| `01DirAM_AE_rescaled` | `prop_h2_latent1` 0.589, `vg1` 0.505, `am11` 0.432 | 100% | 51 (19) |
+| `01DirAM_AFE_rescaled` | `prop_h2_latent2` 0.137, `vg2` 0.145, `f22` 0.242, `am22` 0.434 | 90.2% | 41 (34) |
+| `02AElatentAM_rescaled` | `prop_h2_latent1` 0.782, `vg1` 0.381, `re` 0.500, `am22` 0.849, `rg` 0.756 | 99.99% | 57 (17) |
+| `03EnvLatentAM_rescaled` | `vg1` 0.078, `f11` 0.183, `f22` 0.084, `am22` 0.734, `rg` 0.979 | 6.7% | 42 (18) |
+| `04EAmigration_rescaled` | `move_p` 0.460, `vg1` 0.592, `prop_h2_latent1` 0.660, `n_gen` 4 (mode, $P > 0.9999$) | 100% | 39 (13) |
+
+"Inside $\Theta$" is the share of the unrestricted posterior inside the simulated range (§5.3).
+The last column is the Mahalanobis distance of the observed correlations from the training
+simulations, with the largest distance among the training simulations in brackets. In
+`02AElatentAM_rescaled`, `prop_h2_latent1` is weakly identified (test $R^2$ 0.62). In
+`03EnvLatentAM_rescaled`, `vg1` sits at its lower bound and `rg` at its upper bound, far from the
+`vg1 = 0.35` at which the fixed `re` and `prop_h2_latent1` were chosen. The predicted-condition
+scripts of 01–04 now hold these estimates and the rescaled generators' fixed values (03:
+`re = 0.7`, `s = 0.3`) and write to `Data/predicted_condition_<cond>_rescaled/`; their summaries
+are exported as `summary_statistics_<fit>.csv`.
 
 ## 7. Analysis notebook
 
@@ -704,7 +740,10 @@ Runs whose summary file is missing are skipped, so new runs appear once their fi
 - **Observed data outside the models.** For the full (PGS + phenotypic) fits of 01 (trait 2), 02
   and 03, almost none of the unrestricted posterior lies inside the simulated range. Their
   estimates sit at the edge of that range, and the predicted conditions show how far each model
-  is from the data. In condition 03, `vg1` is barely identified (95% interval 0.40–0.80).
+  is from the data. In condition 03, `vg1` is barely identified (95% interval 0.40–0.80). In the
+  rescaled fits, most of each posterior lies inside the range except for 03 (6.7%), but the
+  observed correlations are still 1.2–3.4 times farther from the training simulations than any
+  simulation is (Mahalanobis distance, §6.4), so every rescaled estimate is an extrapolation.
 - **Condition 03 v1 summary.** The v1 summary file of condition 03 does not match its documented
   parameters: it has trait-2 PGS correlations although trait 2 has no PGS. Treat it as unverified.
 - **Reproducibility of predicted conditions.** The engine draws causal variants before applying

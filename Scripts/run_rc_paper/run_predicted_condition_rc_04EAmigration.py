@@ -2,7 +2,7 @@
 Runs TOTAL_ITERATIONS with N=40000 across 5 islands with EA-driven migration.
 Saves the final 3 generations and summary statistics.
 
-Condition 04EAmigration (see DataGeneratingNN_Combined_04EAmigration.py):
+Condition 04EAmigration (see run_rc_paper_rescaled/DataGeneratingNN_Combined_04EAmigration_rescaled.py):
   - Trait 1 (EA): additive genetics (PGS part + latent part) + unique environment.
     No assortative mating (random mating within islands), no vertical
     transmission, no shared environment.
@@ -35,30 +35,30 @@ from postprocessing import save_simulation_results, extract_individual_measures,
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-# Wider-prior fits on all 26 relationship types (2026-11-08): own folders, apart from the
-# outputs of the earlier runs (_ea4pheno: narrower-prior fits on 16 relationship types)
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_04EAmigration_wider")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_04EAmigration_wider")
+# Rescaled fits (2026-11-17), after the engine fix of 2026-11-08: own folders, apart from the
+# outputs of the earlier runs (_wider: the same design simulated on the old engine)
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_04EAmigration_rescaled")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_04EAmigration_rescaled")
 
 # Condition 04EAmigration: EA-driven island migration, no AM, no VT.
-# NPE fit: nn_NPE/results_npe_unweighted_04EAmigration_wider (trained 2026-11-08 on the
-# n_gen >= 4 rows of nn_training_04EAmigration_wider.csv, with all 26 relationship
-# types (PGS and phenotypic) and predicted from nn_NPE/observed_correlations_PGS_ea4new.csv and
+# NPE fit: nn_NPE/results_npe_unweighted_04EAmigration_rescaled (trained 2026-11-17 on the
+# n_gen >= 4 rows of nn_training_04EAmigration_rescaled.csv, with all 26 relationship
+# types (PGS and phenotypic)) and predicted from nn_NPE/observed_correlations_PGS_ea4new.csv and
 # observed_correlations_pheno_021126.csv. Values: results_npe_unweighted_<fit>/predictions/.
+# vg1 is the founder heritability of EA (engine fix of 2026-11-08).
 # n_gen is the posterior mode (P(n_gen=4) > 0.9999); the continuous parameters are
-# posterior means. n_gen = 4 is the lowest value in this fit: PSCC and PPSCC do not exist at
-# n_gen = 3 (the founders have no siblings), so n_gen = 3 cannot reproduce all 26 types. In a
-# check fit without those two types and with n_gen 3-10, P(n_gen=3) = 0.98, with move_p 0.514,
-# vg1 0.334 and prop_h2_latent1 0.666.
+# posterior means, and 100% of their unrestricted posterior lies inside the simulated range.
+# n_gen = 4 is the lowest value in this fit: PSCC and PPSCC do not exist at n_gen = 3 (the
+# founders have no siblings), so n_gen = 3 cannot reproduce all 26 types.
 # Caveat: the observed correlations are far outside the simulated distribution (Mahalanobis
-# distance 41; at most 16 among the training rows), so these are extrapolations and the
+# distance 39; at most 13 among the training rows), so these are extrapolations and the
 # very narrow posterior intervals are overconfident.
 CONDITION = {
     'name': 'Predicted_Condition_04EAmigration',
     # Estimated parameters
-    'move_p':          0.4507,  # fraction of each sex per island migrating per generation
-    'vg1':             0.2824,  # EA total genetic variance
-    'prop_h2_latent1': 0.6346,  # share of EA genetic variance NOT captured by the PGS
+    'move_p':          0.4595,  # fraction of each sex per island migrating per generation
+    'vg1':             0.5924,  # EA founder heritability
+    'prop_h2_latent1': 0.6598,  # share of EA genetic variance NOT captured by the PGS
     'n_gen':           4,       # generations since the random founders
     # Trait 2 (dummy): fully latent, drives nothing (fixed)
     'vg2': 0.5,
@@ -101,7 +101,7 @@ RELATIONSHIP_TYPES = [
     'SMSMSC',
     'MSMSMS',
     # Added 2026-11-01: the other relationship types of the EA4 observed data
-    # (nn_NPE/observed_correlations_PGS_ea4new.csv); also used by the wider NPE fits
+    # (nn_NPE/observed_correlations_PGS_ea4new.csv); also used by the wider and rescaled NPE fits
     'SC',       # Sibling's child (avuncular)
     'PSCC',     # First cousin's child (first cousin once removed)
     'MPS',      # Mate's parent's sibling

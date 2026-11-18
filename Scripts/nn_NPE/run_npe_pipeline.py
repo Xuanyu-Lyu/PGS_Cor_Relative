@@ -40,6 +40,10 @@ Usage
     # wider-prior fits on all 26 relationship types (PGS + phenotypic)
     python run_npe_pipeline.py --jobs 5 --archive_tag wider_<YYYYMMDD> --runs \
         01DirAM_AE_wider 01DirAM_AFE_wider 02AElatentAM_wider 03EnvLatentAM_wider 04EAmigration_wider
+    # rescaled designs (after the engine fix of 2026-11-08), same setup as the wider fits
+    python run_npe_pipeline.py --jobs 5 --archive_tag rescaled_<YYYYMMDD> --runs \
+        01DirAM_AE_rescaled 01DirAM_AFE_rescaled 02AElatentAM_rescaled 03EnvLatentAM_rescaled \
+        04EAmigration_rescaled
 """
 
 from __future__ import annotations
@@ -98,6 +102,15 @@ RUNS = {
     # PSCC and PPSCC do not exist at n_gen = 3 (the founders have no siblings); the trainer would
     # code them as 0, so n_gen = 3 is left out rather than identified by that artefact.
     "04EAmigration_wider":         dict(data="04EAmigration_wider", trait=1, **WIDER_OBSERVED,
+                                        train_args=["--group_col", "Condition", "--count_param", "n_gen",
+                                                    "--row_filter", "param_n_gen >= 4"]),
+    # Rescaled designs (Scripts/run_rc_paper_rescaled): the wider designs simulated again after the
+    # engine fix of 2026-11-08, with the same features, parameters and observed files.
+    "01DirAM_AE_rescaled":         dict(data="01DirAM_rescaled", trait=1, **WIDER_OBSERVED),
+    "01DirAM_AFE_rescaled":        dict(data="01DirAM_rescaled", trait=2, **WIDER_OBSERVED),
+    "02AElatentAM_rescaled":       dict(data="02AElatentAM_rescaled", trait=1, **WIDER_OBSERVED),
+    "03EnvLatentAM_rescaled":      dict(data="03EnvLatentAM_rescaled", trait=1, **WIDER_OBSERVED),
+    "04EAmigration_rescaled":      dict(data="04EAmigration_rescaled", trait=1, **WIDER_OBSERVED,
                                         train_args=["--group_col", "Condition", "--count_param", "n_gen",
                                                     "--row_filter", "param_n_gen >= 4"]),
 }

@@ -20,56 +20,60 @@ from postprocessing import save_simulation_results, extract_individual_measures,
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-# Wider-prior fits on all 26 relationship types (2026-11-08): own folders, apart from the
-# outputs of the earlier runs (_ea4pheno: narrower-prior fits on 16 relationship types)
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_03EnvLatentAM_wider")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_03EnvLatentAM_wider")
+# Rescaled fits (2026-11-17), after the engine fix of 2026-11-08: own folders, apart from the
+# outputs of the earlier runs (_wider: the same design simulated on the old engine)
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_03EnvLatentAM_rescaled")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_03EnvLatentAM_rescaled")
 
 # Bivariate AE + vertical transmission + latent AM condition (03_EnvLatentAM).
 # Single-trait phenotypic AM on trait 2 only (latent factor, am22);
 # traits are genetically correlated (rg). Within-trait vertical transmission
-# (f11, f22) and shared family environment (s = 0.5) are present.
+# (f11, f22) and shared family environment (s = 0.3 on all four paths) are present.
 # Free parameters (vg1, f11, f22, am22, rg) are posterior means from the NPE fit to
-# the observed data (results_npe_unweighted_03EnvLatentAM_wider); all other parameters are
+# the observed data (results_npe_unweighted_03EnvLatentAM_rescaled); all other parameters are
 # fixed at the values used to generate the NN training data (see FIXED_PARAMS in
-# run_rc_paper_wider/DataGeneratingNN_Combined_03EnvLatentAM_wider.py).
-# The fit was trained 2026-11-08 on nn_training_03EnvLatentAM_wider.csv with all 26 relationship
-# types (PGS and phenotypic) and predicted from nn_NPE/observed_correlations_PGS_ea4new.csv and
+# run_rc_paper_rescaled/DataGeneratingNN_Combined_03EnvLatentAM_rescaled.py): re = 0.7,
+# prop_h2_latent1 = 0.7, s = 0.3 on all four paths.
+# vg1 and vg2 are founder heritabilities (engine fix of 2026-11-08).
+# The fit was trained 2026-11-17 on nn_training_03EnvLatentAM_rescaled.csv (19,680 simulations;
+# the other 320 were lost to a node failure) with all 26 relationship types (PGS and phenotypic)
+# and predicted from nn_NPE/observed_correlations_PGS_ea4new.csv and
 # observed_correlations_pheno_021126.csv. Values: results_npe_unweighted_<fit>/predictions/.
-# The posterior is restricted to the simulated parameter range. None of the unrestricted
-# posterior lies inside it, so it is sampled by MCMC far in the tail of the flow and these
-# estimates are unreliable: vg1 sits near its lower bound (0.05), and rg has most of its mass at
-# 0.8-0.99 (median 0.974) with about 5% near 0. The observed correlations are far outside what
-# this model simulates (Mahalanobis distance 50; at most 16 among the training rows).
+# The posterior is restricted to the simulated parameter range. 6.7% of the unrestricted
+# posterior lies inside it: vg1 sits near its lower bound (median 0.075; 0.05-0.95 simulated) and
+# rg near its upper bound (median 0.982; 0-0.99 simulated). The fixed re and prop_h2_latent1 were
+# chosen at vg1 = 0.35, far from this estimate. The observed correlations are far outside what
+# this model simulates (Mahalanobis distance 42; at most 18 among the training rows), so these
+# are extrapolations and the narrow posterior intervals are overconfident.
 CONDITION = {
     'name': 'Predicted_Condition_03EnvLatentAM',
     # Trait 1 (posterior means for vg1, f11; prop_h2_latent1 fixed)
     'prop_h2_latent1': 0.7,   # fixed
-    'vg1': 0.0918,
+    'vg1': 0.0777,
     'am11': 0.0,      # no direct AM on trait 1
-    'f11': 0.0919,    # posterior mean
+    'f11': 0.1826,    # posterior mean
     # Trait 2: latent AM (posterior means for am22, f22; prop_h2_latent2, vg2 fixed)
     'prop_h2_latent2': 1.0,   # fixed
     'vg2': 0.5,       # fixed
-    'am22': 0.6941,   # latent AM on trait 2 (single-trait mating)
-    'f22': 0.1122,
-    's11': 0.5,       # fixed shared family environment
-    's12': 0.5,       # fixed cross-trait shared environment
-    's21': 0.5,       # fixed cross-trait shared environment
-    's22': 0.5,       # fixed shared family environment
+    'am22': 0.7341,   # latent AM on trait 2 (single-trait mating)
+    'f22': 0.0836,
+    's11': 0.3,       # fixed shared family environment (s_mat paths; Cov(S) = s s')
+    's12': 0.3,       # fixed cross-trait shared environment
+    's21': 0.3,       # fixed cross-trait shared environment
+    's22': 0.3,       # fixed shared family environment
     # Cross-trait parameters
     'f12': 0.0,       # fixed: no cross-trait vertical transmission
     'f21': 0.0,       # fixed: no cross-trait vertical transmission
     'am12': 0.0,
     'am21': 0.0,
-    'rg': 0.9169,   # posterior mean
-    're': 0.1,        # fixed environmental correlation
+    'rg': 0.9791,   # posterior mean
+    're': 0.7,        # fixed environmental correlation
 }
 
 # Simulation parameters
 TOTAL_ITERATIONS = 100  # Total iterations across all array tasks
 POP_SIZE = 40000
-N_GENERATIONS = 15  # Total generations (will save last 3); as in DataGeneratingNN_Combined_03EnvLatentAM_wider.py
+N_GENERATIONS = 15  # Total generations (will save last 3); as in DataGeneratingNN_Combined_03EnvLatentAM_rescaled.py
 FINAL_GENS = [12, 13, 14]  # Final 3 generations to analyze
 N_CV = 1000
 MAF_MIN = 0.01
@@ -101,7 +105,7 @@ RELATIONSHIP_TYPES = [
     'SMSMSC',
     'MSMSMS',
     # Added 2026-11-01: the other relationship types of the EA4 observed data
-    # (nn_NPE/observed_correlations_PGS_ea4new.csv); also used by the wider NPE fits
+    # (nn_NPE/observed_correlations_PGS_ea4new.csv); also used by the wider and rescaled NPE fits
     'SC',       # Sibling's child (avuncular)
     'PSCC',     # First cousin's child (first cousin once removed)
     'MPS',      # Mate's parent's sibling

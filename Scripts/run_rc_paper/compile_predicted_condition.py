@@ -55,6 +55,11 @@ NN_NPE_SUMMARIES = {
     "predicted_condition_02AElatentAM_wider":  ("02AElatentAM_wider", ""),
     "predicted_condition_03EnvLatentAM_wider": ("03EnvLatentAM_wider", ""),
     "predicted_condition_04EAmigration_wider": ("04EAmigration_wider", ""),
+    # Rescaled designs, after the engine fix of 2026-11-08 (the fit name says rescaled)
+    "predicted_condition_01DirAM_rescaled":       ("01DirAM_AE_rescaled", ""),
+    "predicted_condition_02AElatentAM_rescaled":  ("02AElatentAM_rescaled", ""),
+    "predicted_condition_03EnvLatentAM_rescaled": ("03EnvLatentAM_rescaled", ""),
+    "predicted_condition_04EAmigration_rescaled": ("04EAmigration_rescaled", ""),
 }
 
 

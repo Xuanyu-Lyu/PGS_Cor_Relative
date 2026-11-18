@@ -29,17 +29,17 @@ NPE = RC.parent / "nn_NPE"
 
 # script tag -> (generator tag, training CSV tag, NPE runs supplying its estimates,
 #                predictions folder of those runs)
-# *_wider fits (generators in run_rc_paper_wider): predictions/ comes from all 26 relationship
+# *_rescaled fits (generators in run_rc_paper_rescaled): predictions/ comes from all 26 relationship
 # types of observed_correlations_PGS_ea4new.csv and observed_correlations_pheno_021126.csv;
 # the other fits' predictions/: from observed_correlations_PGS.csv and observed_correlations_pheno.csv
 SCRIPTS = {
-    "01DirAM":                     ("01DirAM_wider", "01DirAM_wider", ["01DirAM_AE_wider", "01DirAM_AFE_wider"], "predictions"),
+    "01DirAM":                     ("01DirAM_rescaled", "01DirAM_rescaled", ["01DirAM_AE_rescaled", "01DirAM_AFE_rescaled"], "predictions"),
     "01DirAM_PGSonly":             ("01DirAM", "01DirAM", ["01DirAM_AE_PGSonly", "01DirAM_AFE_PGSonly"], "predictions"),
-    "02AElatentAM":                ("02AElatentAM_wider", "02AElatentAM_wider", ["02AElatentAM_wider"], "predictions"),
+    "02AElatentAM":                ("02AElatentAM_rescaled", "02AElatentAM_rescaled", ["02AElatentAM_rescaled"], "predictions"),
     "02AElatentAM_PGSonly":        ("02AElatentAM", "02AElatentAM", ["02AElatentAM_PGSonly"], "predictions"),
-    "03EnvLatentAM":               ("03EnvLatentAM_wider", "03EnvLatentAM_wider", ["03EnvLatentAM_wider"], "predictions"),
+    "03EnvLatentAM":               ("03EnvLatentAM_rescaled", "03EnvLatentAM_rescaled", ["03EnvLatentAM_rescaled"], "predictions"),
     "03EnvLatentAM_PGSonly":       ("03EnvLatentAM", "03EnvLatentAM_all", ["03EnvLatentAM_PGSonly"], "predictions"),
-    "04EAmigration":               ("04EAmigration_wider", "04EAmigration_wider", ["04EAmigration_wider"], "predictions"),
+    "04EAmigration":               ("04EAmigration_rescaled", "04EAmigration_rescaled", ["04EAmigration_rescaled"], "predictions"),
     "05AMmigration_noVT":          ("05AMmigration_noVT", "05AMmigration_noVT", ["05AMmigration_noVT2"], "predictions"),
     "05AMmigration_noVT2_PGSonly": ("05AMmigration_noVT", "05AMmigration_noVT", ["05AMmigration_noVT2_PGSonly"], "predictions"),
 }
@@ -78,7 +78,8 @@ def main():
     for tag, (gen_tag, data_tag, runs, pred_dir) in SCRIPTS.items():
         print(f"\n=== run_predicted_condition_rc_{tag}.py ({pred_dir}/)")
         pred = assignments(RC / f"run_predicted_condition_rc_{tag}.py")
-        gen_dir = RC.parent / "run_rc_paper_wider" if gen_tag.endswith("_wider") else RC
+        design = gen_tag.rsplit("_", 1)[-1]   # generators of a design suffix live in run_rc_paper_<suffix>
+        gen_dir = RC.parent / f"run_rc_paper_{design}" if design in ("wider", "rescaled") else RC
         gen = assignments(gen_dir / f"DataGeneratingNN_Combined_{gen_tag}.py")
         cond, bounds, fixed = pred["CONDITION"], gen["PARAM_BOUNDS"], gen["FIXED_PARAMS"]
 

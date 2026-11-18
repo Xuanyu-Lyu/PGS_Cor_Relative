@@ -20,38 +20,41 @@ from postprocessing import save_simulation_results, extract_individual_measures,
 # Define output directories
 # SCRATCH_DIR for raw iteration data (large files)
 # PROJECT_DIR for summary statistics (small files)
-# Wider-prior fits on all 26 relationship types (2026-11-08): own folders, apart from the
-# outputs of the earlier runs (_ea4pheno: narrower-prior fits on 16 relationship types)
-SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM_wider")
-PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM_wider")
+# Rescaled fits (2026-11-17), after the engine fix of 2026-11-08: own folders, apart from the
+# outputs of the earlier runs (_wider: the same design simulated on the old engine)
+SCRATCH_BASE = Path("/scratch/alpine/xuly4739/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM_rescaled")
+PROJECT_BASE = Path("/projects/xuly4739/Py_Projects/PGS_Cor_Relative/Data/predicted_condition_02AElatentAM_rescaled")
 
 # Bivariate AE + latent AM condition (02_AElatentAM).
 # Single-trait phenotypic AM on trait 2 only (latent factor, am22);
 # traits are genetically and environmentally correlated (rg, re).
 # AE model: no vertical transmission, no shared family environment.
 # Free parameters (prop_h2_latent1, vg1, re, am22, rg) are posterior means from the
-# NPE fit to the observed data (results_npe_unweighted_02AElatentAM_wider); prop_h2_latent2
+# NPE fit to the observed data (results_npe_unweighted_02AElatentAM_rescaled); prop_h2_latent2
 # and vg2 are fixed at the values used to generate the NN training data (trait 2 is
 # 100% latent genetic variance, vg2=0.5 — see
-# run_rc_paper_wider/DataGeneratingNN_Combined_02AElatentAM_wider.py).
-# The fit was trained 2026-11-08 on nn_training_02AElatentAM_wider.csv with all 26 relationship
-# types (PGS and phenotypic) and predicted from nn_NPE/observed_correlations_PGS_ea4new.csv and
+# run_rc_paper_rescaled/DataGeneratingNN_Combined_02AElatentAM_rescaled.py).
+# vg1 and vg2 are founder heritabilities (engine fix of 2026-11-08).
+# The fit was trained 2026-11-17 on nn_training_02AElatentAM_rescaled.csv (19,960 simulations;
+# the other 40 were lost to a node failure) with all 26 relationship types (PGS and phenotypic)
+# and predicted from nn_NPE/observed_correlations_PGS_ea4new.csv and
 # observed_correlations_pheno_021126.csv. Values: results_npe_unweighted_<fit>/predictions/.
-# The posterior is restricted to the simulated parameter range. 7.2% of the unrestricted
-# posterior lies inside it, with vg1 near its lower bound (0.05). The observed correlations are
-# far outside what this model simulates (Mahalanobis distance 54; at most 16 among the
-# training rows), so these are extrapolations and the narrow posterior intervals are overconfident.
+# The posterior is restricted to the simulated parameter range; 99.99% of the unrestricted
+# posterior lies inside it. prop_h2_latent1 is weakly identified (test R2 0.62). The observed
+# correlations are far outside what this model simulates (Mahalanobis distance 57; at most 17
+# among the training rows), so these are extrapolations and the narrow posterior intervals are
+# overconfident.
 CONDITION = {
     'name': 'Predicted_Condition_02AElatentAM',
     # Trait 1: AE model, latent genetic variance (posterior mean)
-    'prop_h2_latent1': 0.6736,
-    'vg1': 0.0567,   # posterior mean
+    'prop_h2_latent1': 0.7821,
+    'vg1': 0.3812,   # posterior mean
     'am11': 0.0,      # no direct AM on trait 1
     'f11': 0.0,       # AE model: no vertical transmission
     # Trait 2: fixed (not estimated — updated data-generating script fixes these)
     'prop_h2_latent2': 1.0,
     'vg2': 0.5,
-    'am22': 0.7259,   # latent AM on trait 2 (single-trait mating)
+    'am22': 0.8489,   # latent AM on trait 2 (single-trait mating)
     'f22': 0.0,       # AE model: no vertical transmission
     's11': 0.0,       # no shared family environment (trait 1)
     's12': 0.0,       # no cross-trait family environment
@@ -62,14 +65,14 @@ CONDITION = {
     'f21': 0.0,
     'am12': 0.0,
     'am21': 0.0,
-    'rg': 0.6727,     # genetic correlation
-    're': 0.8062,   # posterior mean
+    'rg': 0.7558,     # genetic correlation
+    're': 0.5001,   # posterior mean
 }
 
 # Simulation parameters
 TOTAL_ITERATIONS = 100  # Total iterations across all array tasks
 POP_SIZE = 40000
-N_GENERATIONS = 15  # Total generations (will save last 3); as in DataGeneratingNN_Combined_02AElatentAM_wider.py
+N_GENERATIONS = 15  # Total generations (will save last 3); as in DataGeneratingNN_Combined_02AElatentAM_rescaled.py
 FINAL_GENS = [12, 13, 14]  # Final 3 generations to analyze
 N_CV = 1000
 MAF_MIN = 0.01
@@ -101,7 +104,7 @@ RELATIONSHIP_TYPES = [
     'SMSMSC',
     'MSMSMS',
     # Added 2026-11-01: the other relationship types of the EA4 observed data
-    # (nn_NPE/observed_correlations_PGS_ea4new.csv); also used by the wider NPE fits
+    # (nn_NPE/observed_correlations_PGS_ea4new.csv); also used by the wider and rescaled NPE fits
     'SC',       # Sibling's child (avuncular)
     'PSCC',     # First cousin's child (first cousin once removed)
     'MPS',      # Mate's parent's sibling
