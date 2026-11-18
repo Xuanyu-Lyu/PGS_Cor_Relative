@@ -1,0 +1,4 @@
+prop_h2_latent1
+vg2
+am22
+theta

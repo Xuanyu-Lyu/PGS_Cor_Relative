@@ -74,6 +74,8 @@ Scripts/
 │   ├── CombineNN_Data_Large_wider.py / submit_combine_nn_wider.sh   one script for all four
 │   └── submit_all_wider.sh                        submit every array + its combine job
 ├── run_rc_paper_rescaled/       training data for 01–04 after the engine fix of 2026-11-08 (§4.2)
+├── run_rc_paper_clark/          training data for the Clark special case of 02 (§4.3)
+├── run_rc_paper_h2fixed/        training data for 04 with founder h² of EA fixed at 0.4 (§4.4)
 ├── nn_NPE/                      model fitting (local)
 │   ├── nn_training_<cond>.csv                    training data (not in git)
 │   ├── observed_correlations_PGS.csv / _pheno.csv
@@ -442,6 +444,83 @@ The combine job writes `Data/to_nn_NPE/nn_training_<cond>_rescaled.csv`. A node 
 1 array task of 02 and 8 of 03, so their training files have 19,960 and 19,680 simulations;
 01 has 20,000 and 04 has 2,500 × 8 `n_gen` rows.
 
+### 4.3 Clark special case of condition 02 (`run_rc_paper_clark`)
+
+Clark's model of the in-law correlations has three parameters: the heritability $h^2$ of "true" EA,
+the spousal correlation $r$ on true EA, and $\theta$, the factor by which correlations on observed
+EA are smaller than those on true EA (measurement error). It is a special case of condition 02:
+the sorting factor (trait 2) is true EA, and observed EA (trait 1) is true EA plus independent noise,
+
+$$
+Y_1 = \sqrt{\theta}\,Y_2 + \sqrt{1-\theta}\,U .
+$$
+
+`DataGeneratingNN_Combined_02AElatentAM_clark.py` (a copy of the rescaled 02 generator) sets this up:
+
+| | Clark | Engine |
+|---|---|---|
+| Sampled | $h^2$ | `vg2` [0.05, 0.95] (fixed at 0.5 in 02) |
+| | $r$ | `am22` [0.05, 0.95] |
+| | $\theta$ | `theta` [0.05, 0.95] |
+| | (PGS) | `prop_h2_latent1` [0.05, 0.95] |
+| Fixed | same genes | `rg = 1`, `prop_h2_latent2 = 1` (true EA has no PGS) |
+| Derived | $A_1 = \sqrt\theta A_2$ | `vg1` $= \theta\,$`vg2` |
+| | $E_1 = \sqrt\theta E_2 + \sqrt{1-\theta}\,U$ | `re` $= \sqrt{\theta(1-\mathrm{vg2})/(1-\mathrm{vg1})}$ |
+
+No vertical transmission and no shared environment, as in 02. Everything else follows the rescaled
+generator: corrected engine, 20,000 conditions, 15 generations (analysed 12–14), 26 relationship
+types. `theta` stops at 0.95 because $\theta = 1$ makes `re` = 1, a singular environmental covariance.
+
+Every phenotypic EA correlation between relatives is then $\theta_g$ times the true-EA correlation,
+where $\theta_g = \mathrm{corr}(Y_1, Y_2)^2$ is the reliability of observed EA in that generation. A local
+check at $N$ = 10,000 (`vg2` = 0.7, `am22` = 0.7, `theta` = 0.65) gave ratios of 0.75–0.80 over the
+relationship types, against $\theta_g$ = 0.785. `theta` and `vg2` are sampled on the founder scale:
+under assortative mating $\mathrm{Var}(Y_2)$ grows, so in the analysed generations the reliability and the
+heritability of true EA are higher (0.785 and 0.844 in that check). Clark's parameters describe a
+population at equilibrium. The generator therefore also records, per simulation, the youngest
+analysed generation's values (`final_*` columns, not parameters):
+- `final_h2_2`: heritability of true EA, Clark's $h^2$;
+- `final_theta`: reliability of observed EA, Clark's $\theta$;
+- `final_h2_1`: heritability of observed EA;
+- `final_r2pgs_1`: $\mathrm{corr}(\mathrm{PGS}, Y_1)^2$;
+- `final_rA`: correlation of the two traits' genetic values, about 1. The PGS and latent variants of
+  trait 1 are rescaled separately, so it is not exactly 1;
+- `final_VY1`, `final_VY2`: phenotypic variances.
+
+The other differences from Clark are the PGS (a random subset of the causal variants, as in every
+condition), 15 generations from random-mating founders instead of an analytic equilibrium, and a
+finite population.
+
+```bash
+# on the CURC login node, after sync_cluster_submodule.sh
+cd Scripts/run_rc_paper_clark
+bash submit_all_clark.sh          # the array + a combine job after it
+```
+
+The combine job writes `Data/to_nn_NPE/nn_training_02AElatentAM_clark.csv`. The NPE fit
+`02AElatentAM_clark` (in `RUNS`) estimates `prop_h2_latent1`, `vg2`, `am22` and `theta` from the same 52
+correlations as the other fits.
+
+### 4.4 Condition 04 with fixed founder heritability (`run_rc_paper_h2fixed`)
+
+`DataGeneratingNN_Combined_04EAmigration_h2fixed.py` is the rescaled 04 generator with the founder
+heritability of EA fixed at `vg1` = 0.4, in the 0.3–0.4 wanted for EA, instead of sampled from
+[0.05, 0.95]. It asks how far EA-sorted migration alone reproduces the correlations at that
+heritability. `move_p` [0.01, 0.95] and `prop_h2_latent1` [0.05, 0.95] are sampled, and each
+simulation is read out at `n_gen` 3–10, as in the rescaled design. Everything else is unchanged:
+2,500 simulations × 8 `n_gen` rows, 26 relationship types, the corrected engine. Removing `vg1` from the
+sampled parameters changes the draws of the others, so the conditions differ from the rescaled ones.
+
+```bash
+# on the CURC login node, after sync_cluster_submodule.sh
+cd Scripts/run_rc_paper_h2fixed
+bash submit_all_h2fixed.sh        # the array + a combine job after it
+```
+
+The combine job writes `Data/to_nn_NPE/nn_training_04EAmigration_h2fixed.csv`. The NPE fit
+`04EAmigration_h2fixed` (in `RUNS`) estimates `move_p`, `prop_h2_latent1` and `n_gen` (4–10, as for the
+rescaled 04 fit).
+
 ## 5. Neural posterior estimation
 
 Code: `Scripts/nn_NPE/train_npe_pgs_and_pheno.py`, `predict_npe_pgs_and_pheno.py` and
@@ -742,7 +821,9 @@ simulations.
 `Scripts/nn_NPE/Analysis_NPE_rescaled.ipynb` covers the rescaled fits (§6.4) in the same way, against the wider
 ones. Founder heritability is `vg` itself in this run and $1/(2 - vg)$ for the wider estimates. It adds the
 Mahalanobis distance of the observed correlations from each fit's training simulations, the spousal–sibling plot
-for all four conditions, and the best training simulations of every fit. It reads
+for all four conditions, and the best training simulations of every fit. Its last section gives the heritability
+and PGS $R^2$ in the final generations of each predicted condition, the output of `final_generation_h2.py` (§6.3),
+next to the founder estimates. It reads
 `results_npe_unweighted_<fit>_rescaled/predictions/summary_statistics_<fit>_rescaled.csv`.
 
 Runs whose summary file is missing are skipped, so new runs appear once their files are copied in.

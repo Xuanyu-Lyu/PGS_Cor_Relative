@@ -113,6 +113,13 @@ RUNS = {
     "04EAmigration_rescaled":      dict(data="04EAmigration_rescaled", trait=1, **WIDER_OBSERVED,
                                         train_args=["--group_col", "Condition", "--count_param", "n_gen",
                                                     "--row_filter", "param_n_gen >= 4"]),
+    # Clark special case of 02 (Scripts/run_rc_paper_clark): estimates Clark's h2 (vg2), r (am22) and
+    # theta on the founder scale, plus the PGS share (prop_h2_latent1)
+    "02AElatentAM_clark":          dict(data="02AElatentAM_clark", trait=1, **WIDER_OBSERVED),
+    # 04 with the founder heritability of EA fixed at 0.4 (Scripts/run_rc_paper_h2fixed)
+    "04EAmigration_h2fixed":       dict(data="04EAmigration_h2fixed", trait=1, **WIDER_OBSERVED,
+                                        train_args=["--group_col", "Condition", "--count_param", "n_gen",
+                                                    "--row_filter", "param_n_gen >= 4"]),
 }
 
 

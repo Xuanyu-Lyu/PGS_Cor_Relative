@@ -331,6 +331,7 @@ def display_posterior_summary(summary_df: pd.DataFrame):
         "vg2":             "Genetic variance (trait 2)",
         "am22":            "Assortative mating coefficient",
         "rg":              "Genetic correlation",
+        "theta":           "Reliability of observed EA (Clark's theta, founder scale)",
     }
 
     for _, row in summary_df.iterrows():
