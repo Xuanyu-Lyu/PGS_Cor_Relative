@@ -66,7 +66,8 @@ Scripts/
 │   ├── submit_predicted_condition_<cond>.sh
 │   ├── submit_all_predicted_conditions.sh        submit the predicted conditions of 01–04
 │   ├── compile_predicted_condition.py            per-task outputs -> summary_statistics_<run>.csv
-│   └── check_predicted_conditions.py             scripts vs NPE fits vs generators
+│   ├── check_predicted_conditions.py             scripts vs NPE fits vs generators
+│   └── final_generation_h2.py                    h² and PGS R² in the final generations (§6.3)
 ├── run_rc_paper_wider/          training data for 01–04 with wider parameter ranges (§4.1)
 │   ├── DataGeneratingNN_Combined_<cond>_wider.py
 │   ├── submit_datagenerating_nn_combined_<cond>_wider.sh
@@ -90,7 +91,8 @@ Scripts/
 │   ├── Analysis_NPE.ipynb                        predicted vs observed correlations
 │   ├── Analysis_NPE_ea4new.ipynb                 the EA4 PGS run alone; why condition 03 fits poorly
 │   ├── Analysis_NPE_ea4pheno.ipynb               the EA4 PGS + updated phenotypic run; 03 rechecked
-│   └── Analysis_NPE_wider.ipynb                  the wider-prior fits on all 26 relationship types
+│   ├── Analysis_NPE_wider.ipynb                  the wider-prior fits on all 26 relationship types
+│   └── Analysis_NPE_rescaled.ipynb               the rescaled fits (corrected engine), against the wider ones
 ├── test_04EAmigration/          identifiability tests and NPE benchmarks for condition 04
 └── Archive/                     retired conditions and unrun generator designs
 ```
@@ -614,7 +616,18 @@ sbatch submit_predicted_condition_<cond>.sh        # one condition
 bash submit_all_predicted_conditions.sh            # 01-04 (PGS + pheno fits); moves earlier outputs aside first
 bash submit_all_predicted_conditions.sh submit_predicted_condition_*_PGSonly.sh   # or any list of submit scripts
 python compile_predicted_condition.py              # after the jobs finish
+python final_generation_h2.py                      # h² and PGS R² in the final generations
 ```
+
+`final_generation_h2.py` reads each replicate's outputs on scratch and prints, per trait, the
+heritability $\mathrm{Var}(AO + AL)/\mathrm{Var}(Y)$ and the PGS $R^2$, $\mathrm{corr}(\mathrm{PGS}, Y)^2$,
+with the variance shares of `F`, `S` and `E`. It reports two generations:
+- the youngest of the analysed window, from its individual-level file;
+- the last simulated one, from the covariance log, which the engine rounds to 3 decimals.
+
+The engine's own `h2` (summary files) is $(\mathrm{Var}(AO) + \mathrm{Var}(AL))/\mathrm{Var}(Y)$. It leaves out
+$2\,\mathrm{Cov}(AO, AL)$, which assortative mating and sorted migration make positive, so it understates
+heritability after the founders.
 
 `compile_predicted_condition.py` writes each summary into its run's folder under a name that
 identifies the run, so it can be downloaded as is. The EA4, `_wider` and `_rescaled` runs, listed
@@ -725,6 +738,12 @@ reads `results_npe_unweighted_<fit>/predictions_ea4pheno/summary_statistics_<fit
 in place of `vg`. It lists each estimate next to the `ea4pheno` one, compares the errors of both runs
 (Fisher z, and the misfit of `diagnose_02_03.ipynb`), and checks each fit against its training
 simulations.
+
+`Scripts/nn_NPE/Analysis_NPE_rescaled.ipynb` covers the rescaled fits (§6.4) in the same way, against the wider
+ones. Founder heritability is `vg` itself in this run and $1/(2 - vg)$ for the wider estimates. It adds the
+Mahalanobis distance of the observed correlations from each fit's training simulations, the spousal–sibling plot
+for all four conditions, and the best training simulations of every fit. It reads
+`results_npe_unweighted_<fit>_rescaled/predictions/summary_statistics_<fit>_rescaled.csv`.
 
 Runs whose summary file is missing are skipped, so new runs appear once their files are copied in.
 `plot_condition("<cond>", "v2", values=True)` also prints each bar's value.
